@@ -10,6 +10,7 @@ import IPod from "./IPod";
 import CloudPass from "./CloudPass";
 import MiniPlayer from "./MiniPlayer";
 import TabTitle from "./TabTitle";
+import Mascot from "./mascot/Mascot";
 import { intro } from "@/lib/intro";
 
 const Scene = dynamic(() => import("./three/Scene"), { ssr: false });
@@ -146,6 +147,8 @@ export default function Experience({ children }: { children: ReactNode }) {
       {/* Outside the app root: presses on the iPod never reach the 3D scenes behind it. */}
       <IPod ready={revealed} />
       <MiniPlayer />
+      {/* The cloud rider who hangs around the page (mascot/brain.ts). */}
+      <Mascot ready={revealed} />
     </>
   );
 }

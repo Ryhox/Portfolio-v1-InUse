@@ -77,6 +77,21 @@ const tmpV = new THREE.Vector3();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
 const tmpE = new THREE.Euler();
+const tmpQ3 = new THREE.Quaternion();
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
+const clamp = THREE.MathUtils.clamp;
+const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+
+/** A damped spring (one angle): it chases its target and overshoots a little, like something floppy. */
+type Spring = { a: number; v: number };
+function spring(sp: Spring, target: number, k: number, c: number, dt: number) {
+  // (two half steps: stable at low frame rates)
+  for (let i = 0; i < 2; i++) {
+    sp.v += (k * (target - sp.a) - c * sp.v) * (dt / 2);
+    sp.a += sp.v * (dt / 2);
+  }
+  return sp.a;
+}
 
 // Rotate a bone by `extra` in world space, after the animation has posed it.
 function addWorldRotation(bone: THREE.Object3D, extra: THREE.Quaternion) {
@@ -134,6 +149,10 @@ export default function MascotModel({ brain, world, onFrame }: { brain: Brain; w
       head: bone("head"), spine: bone("spine"),
       earL: bone("ear_L1"), earR: bone("ear_R1"), earL3: bone("ear_L3"), earR3: bone("ear_R3"),
       tuftL: bone("tuft_L1"), tuftR: bone("tuft_R1"), hips: bone("hips"), footL: bone("foot_L"), footR: bone("foot_R"),
+      // (for the floppy bits: secondary motion on top of the actions)
+      earL2: bone("ear_L2"), earR2: bone("ear_R2"), tuftL2: bone("tuft_L2"), tuftR2: bone("tuft_R2"), tail: bone("tail"),
+      legL: bone("leg_L"), legR: bone("leg_R"),
+      armLu: bone("arm_Lup"), armLl: bone("arm_Llo"), armRu: bone("arm_Rup"), armRl: bone("arm_Rlo"),
     };
     // Points on her body, stored in the bones' own space (read off the rest pose), for hit testing.
     scene.updateMatrixWorld(true);
@@ -180,6 +199,16 @@ export default function MascotModel({ brain, world, onFrame }: { brain: Brain; w
     t: 0,
     headBase: new THREE.Quaternion(),
     headBaseSet: false,
+    // secondary motion: the springs, the action's own pose of each floppy bone (restored every frame, like
+    // the head), and what drives them
+    jig: {
+      base: new Map<THREE.Object3D, THREE.Quaternion>(),
+      sp: {} as Record<string, Spring>,
+      roll: 0, omega: 0, vx: 0, ax: 0,
+      nextKick: 0, kickUntil: 0,
+      stretch: { a: 0, v: 0 } as Spring,
+      wasHeld: false,
+    },
   });
 
   useFrame((_, rawDt) => {
@@ -233,10 +262,25 @@ export default function MascotModel({ brain, world, onFrame }: { brain: Brain; w
     // snapped back: the flicker and the spins). Put back the clip's own head pose first, every frame.
     const hb = rig.bones.head;
     if (hb && s.headBaseSet) hb.quaternion.copy(s.headBase);
+    // (same for the floppy bones: back to the action's pose before the springs are added again)
+    const floppy = [
+      rig.bones.spine, rig.bones.earL, rig.bones.earL2, rig.bones.earL3, rig.bones.earR, rig.bones.earR2, rig.bones.earR3,
+      rig.bones.tuftL, rig.bones.tuftL2, rig.bones.tuftR, rig.bones.tuftR2, rig.bones.tail,
+      rig.bones.armLu, rig.bones.armLl, rig.bones.armRu, rig.bones.armRl, rig.bones.legL, rig.bones.legR, rig.bones.footL, rig.bones.footR,
+    ].filter((x): x is THREE.Bone => !!x);
+    for (const fb of floppy) {
+      const q = s.jig.base.get(fb);
+      if (q) fb.quaternion.copy(q);
+    }
     rig.mixer.update(dt);
     if (hb) {
       s.headBase.copy(hb.quaternion);
       s.headBaseSet = true;
+    }
+    for (const fb of floppy) {
+      const q = s.jig.base.get(fb);
+      if (q) q.copy(fb.quaternion);
+      else s.jig.base.set(fb, fb.quaternion.clone());
     }
 
     // ---- place her
@@ -257,6 +301,78 @@ export default function MascotModel({ brain, world, onFrame }: { brain: Brain; w
       tmpE.set(s.look.y * 0.4, s.look.x * 0.62, -s.look.x * 0.1, "YXZ");
       addWorldRotation(b.head, tmpQ2.setFromEuler(tmpE).clone());
     }
+    // ---- secondary motion: nothing on her is rigid. Ears, tufts and tail trail behind every turn and swerve;
+    // held, her arms and legs keep hanging down while she swings (instead of swinging with her like a plank),
+    // she kicks and flails now and then, and she stretches when grabbed and squashes when let go.
+    {
+      const j = s.jig;
+      const step = Math.max(dt, 1e-3);
+      let dRoll = o.roll - j.roll;
+      dRoll = Math.atan2(Math.sin(dRoll), Math.cos(dRoll));
+      j.roll = o.roll;
+      j.omega = j.omega * 0.7 + clamp(dRoll / step, -30, 30) * 0.3;
+      j.ax = j.ax * 0.8 + clamp((vx - j.vx) / step, -30000, 30000) * 0.2;
+      j.vx = vx;
+      const held = o.grabbing;
+      const flying = !held && (o.anim === "Air" || o.anim === "Tumble" || o.anim === "Fall");
+      const loose = held || flying ? 1 : 0.3; // riding: only a hint of it on her limbs
+      const hang = held ? -o.swing : 0;
+      // inertia: lagging behind her turning and her sideways speeding up / slowing down. Things hanging down
+      // (arms, legs, tail) and things sticking up (ears, tufts) trail to opposite sides when she's pushed
+      // sideways; upside down (held by the feet) that flips.
+      const up = Math.cos(o.roll) >= 0 ? 1 : -1;
+      const lag = -j.omega * 0.14 - j.ax * 0.0002 * up;
+      const lagUp = -j.omega * 0.14 + j.ax * 0.0002 * up;
+      // struggling, in little bursts (more when she's cross)
+      const cross = o.expr === "angry" ? 1 : o.expr === "annoyed" ? 0.75 : 0.5;
+      if (held && !world.reduced) {
+        if (s.t > j.nextKick) {
+          j.kickUntil = s.t + rnd(0.45, 0.9);
+          j.nextKick = j.kickUntil + rnd(0.7, 2.2) / (0.5 + cross);
+        }
+      } else j.kickUntil = 0;
+      const kicking = s.t < j.kickUntil;
+      // dangling: her legs and arms always sway a little, like a plush held up (out of step, so it's loose)
+      const dangle = held ? 1 : 0;
+      const sway = (f: number, ph: number) => dangle * Math.sin(s.t * f + ph);
+      const kick = (kicking ? Math.sin(s.t * 19) * 0.6 * cross : 0) + sway(4.2, 0) * 0.22;
+      const flail = (kicking ? Math.sin(s.t * 15 + 1.3) * 0.65 * cross : 0) + sway(3.4, 1.1) * 0.18;
+
+      const sp = (name: string, target: number, k: number, c: number) => spring((j.sp[name] ??= { a: 0, v: 0 }), target, k, c, dt);
+      // (held, her ears droop a little outwards: gravity on two long floppy ears)
+      const droop = held ? 0.28 : 0;
+      const ear = sp("ear", clamp(lagUp * 1.5 + hang * 0.35 + droop + sway(2.6, 0.4) * 0.08, -1.2, 1.2), 70, 5.5);
+      const earR = sp("earR", clamp(lagUp * 1.3 + hang * 0.35 - droop + sway(2.4, 2) * 0.08, -1.2, 1.2), 62, 5); // (a little out of step)
+      const tuft = sp("tuft", clamp(lagUp * 1.1 + hang * 0.3, -1, 1), 95, 7);
+      const tail = sp("tail", clamp(lag + hang * 0.45, -1, 1), 80, 6);
+      const armL = sp("armL", clamp(lag * 0.8 * loose + hang * 0.75 + flail, -1.4, 1.4), 55, 6);
+      const armR = sp("armR", clamp(lag * 0.8 * loose + hang * 0.75 - flail, -1.4, 1.4), 50, 5.5);
+      const legL = sp("legL", clamp(lag * 0.6 * loose + hang * 0.8 + kick, -1.3, 1.3), 48, 5);
+      const legR = sp("legR", clamp(lag * 0.6 * loose + hang * 0.8 - kick + sway(4.6, 2.2) * 0.12, -1.3, 1.3), 44, 4.6);
+      const spine = sp("spine", clamp(hang * 0.18 + lag * 0.2 * loose, -0.5, 0.5), 90, 10);
+
+      const turn = (bn: THREE.Object3D | undefined, a: number) => {
+        if (bn && Math.abs(a) > 1e-4) addWorldRotation(bn, tmpQ3.setFromAxisAngle(AXIS_Z, a));
+      };
+      turn(b.spine, spine);
+      turn(b.earL, ear * 0.5); turn(b.earL2, ear * 0.3); turn(b.earL3, ear * 0.2);
+      turn(b.earR, earR * 0.5); turn(b.earR2, earR * 0.3); turn(b.earR3, earR * 0.2);
+      turn(b.tuftL, tuft * 0.6); turn(b.tuftL2, tuft * 0.4);
+      turn(b.tuftR, tuft * 0.6); turn(b.tuftR2, tuft * 0.4);
+      turn(b.tail, tail);
+      turn(b.armLu, armL); turn(b.armLl, armL * 0.35);
+      turn(b.armRu, armR); turn(b.armRl, armR * 0.35);
+      turn(b.legL, legL); turn(b.footL, legL * 0.3);
+      turn(b.legR, legR); turn(b.footR, legR * 0.3);
+
+      // squash and stretch: pulled long when you grab her, squished when you let go
+      if (held && !j.wasHeld) j.stretch.v += 3.2;
+      if (!held && j.wasHeld) j.stretch.v -= 2.4;
+      j.wasHeld = held;
+      const st2 = clamp(spring(j.stretch, 0, 170, 9, dt), -0.18, 0.22);
+      g.scale.set(S * (1 - st2 * 0.45), S * (1 + st2), S);
+    }
+
     // ---- face (only redrawn when something on it changes)
     const f = s.face;
     const lx = Math.round(s.look.x * 6) / 6, ly = Math.round(-s.look.y * 6) / 6;

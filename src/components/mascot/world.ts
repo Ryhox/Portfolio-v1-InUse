@@ -38,6 +38,17 @@ const PERCH_SEL = [
   "[data-mascot-perch]",
 ].join(",");
 
+// Content she must never cover, so she stays in the free space around it:
+//   text: measured line by line (the text itself, not the box around it, which is often much wider)
+//   things: pictures, videos, buttons, the iPod, the nav, the mini player (their boxes)
+const TEXT_SEL = "h1, h2, h3, h4, p, blockquote, figcaption, .footer a, .footer span, .panel-index, .work-count, .more-handle, .seen, .st-head";
+const THING_SEL = [
+  "img", "video", ".panel-media", ".glass-cap", ".chrome-pill", ".nav-pill", ".act", ".more-icon",
+  "[data-ipod]", ".mini-player.is-on", "[data-mascot-solid]",
+].join(",");
+
+export type Box = { left: number; right: number; top: number; bottom: number };
+
 const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
 
 export class World {
@@ -50,6 +61,8 @@ export class World {
   scrollY = 0;
   scrollV = 0;
   perches: Perch[] = [];
+  /** Content on screen (and a screen above / below), which she keeps clear of. */
+  solids: Box[] = [];
   events: WorldEvent[] = [];
   music = false;
   night = 0;
@@ -58,6 +71,7 @@ export class World {
   input = 0;
   private offs: (() => void)[] = [];
   private scanAt = 0;
+  private range: Range | null = null;
   private lastScroll = 0;
   private konami = 0;
   private hiddenAt = 0;
@@ -178,6 +192,35 @@ export class World {
       out.push({ el, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
     });
     this.perches = out;
+    const solids: Box[] = [];
+    const near = (r: DOMRect) => !(r.bottom < -H * 0.5 || r.top > H * 1.5 || r.right < 0 || r.left > this.W);
+    const add = (r: DOMRect) => {
+      if (r.width >= 4 && r.height >= 4) solids.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+    };
+    document.querySelectorAll(THING_SEL).forEach((el) => {
+      if (el.closest("[data-mascot]")) return;
+      const r = el.getBoundingClientRect();
+      if (!near(r) || (r.width >= this.W * 0.98 && r.height >= H * 0.9)) return; // (a whole-screen backdrop)
+      add(r);
+    });
+    const range = this.range ??= document.createRange();
+    document.querySelectorAll(TEXT_SEL).forEach((el) => {
+      if (el.closest("[data-mascot]") || !near(el.getBoundingClientRect())) return;
+      range.selectNodeContents(el);
+      for (const r of range.getClientRects()) add(r);
+    });
+    this.solids = solids;
+  }
+
+  /** How much of a box (viewport px) is covered by content: 0 = free. */
+  overlap(b: Box) {
+    let a = 0;
+    for (const s of this.solids) {
+      const w = Math.min(b.right, s.right) - Math.max(b.left, s.left);
+      const h = Math.min(b.bottom, s.bottom) - Math.max(b.top, s.top);
+      if (w > 0 && h > 0) a += w * h;
+    }
+    return a;
   }
 
   update(dt: number) {

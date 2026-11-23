@@ -17,15 +17,11 @@
   left: 0;
   display: none;
   pointer-events: auto;
-  cursor: grab;
+  cursor: pointer;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
   border-radius: 40%;
   user-select: none;
-}
-
-.hit[data-grab="1"] {
-  cursor: grabbing;
 }
 
 /* The Windows XP notification balloon: pale yellow, thin black border, a little tail. */

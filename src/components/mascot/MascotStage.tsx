@@ -132,8 +132,7 @@ export default function MascotStage() {
       brain.pointerDown(e.clientX, e.clientY, zoneAt(e.clientX, e.clientY, zone));
     },
     onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
-      if (e.buttons) brain.pointerMove(e.clientX, e.clientY);
-      else if (zone !== "cloud") brain.hover(e.clientX, e.clientY);
+      if (!e.buttons && zone !== "cloud") brain.hover(e.clientX, e.clientY);
     },
     onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => {
       brain.pointerUp(e.clientX, e.clientY);

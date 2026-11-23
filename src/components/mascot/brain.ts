@@ -40,6 +40,8 @@ export type Out = {
   zz: boolean;
   /** Music notes floating up from her (the iPod is playing and she's awake). */
   notes: boolean;
+  /** While held: how far she's swung away from hanging straight (radians). The model lets her limbs lag. */
+  swing: number;
   visible: boolean;
   grabbing: boolean;
 };
@@ -97,7 +99,7 @@ export class Brain {
     x: -999, y: -999, roll: 0, yaw: 0, anim: "Lie_Back", once: false, fade: 0.4, speed: 1, seq: 0,
     expr: "neutral", blink: 0, look: { x: 0, y: 0, w: 0 },
     cloud: { x: -999, y: -999, squash: 0, tilt: 0 },
-    bubble: { text: "", seq: 0, until: 0 }, zz: false, notes: false, visible: true, grabbing: false,
+    bubble: { text: "", seq: 0, until: 0 }, zz: false, notes: false, swing: 0, visible: true, grabbing: false,
   };
   geo: Geo = { head: { x: 0, y: 0, r: 0 }, body: { x: 0, y: 0, r: 0 }, ears: [], feet: [] };
   durations: Record<string, number> = {};
@@ -136,6 +138,9 @@ export class Brain {
   private oneshot: { name: string; until: number } | null = null;
   private routine: { name: string; i: number; until: number } | null = null;
   private nextTravelAt = 0;
+  private freeCheckAt = 0;
+  private glide: { spot: Spot | null; sx: number; sy: number; t0: number; T: number } | null = null;
+  private coveredCount = 0;
   private perchUntil = 0;
   // mood (0..1)
   private annoy = 0;
@@ -261,6 +266,16 @@ export class Brain {
     const r = work && this.w.rectOf(work);
     return !!r && Math.abs(r.top) < 2 && r.bottom >= this.H - 2 && window.innerWidth >= 900;
   }
+  /** Where on the page she should keep to one side (viewport px, live). */
+  private sideRule() {
+    const out: { top: number; bottom: number; side: "left" | "right" }[] = [];
+    for (const sel of [".skills", ".contact"]) {
+      const el = document.querySelector(sel);
+      const r = el && this.w.rectOf(el);
+      if (r && r.bottom > 0 && r.top < this.H) out.push({ top: r.top, bottom: r.bottom, side: "right" });
+    }
+    return out;
+  }
   private sectionAt(y: number) {
     for (const el of document.querySelectorAll("[data-section]")) {
       const r = el.getBoundingClientRect();
@@ -272,17 +287,43 @@ export class Brain {
     const p = this.spotPos(s);
     return p.ok && p.y > this.minY - 30 && p.y < this.maxY + 40;
   }
+  /** The room she takes up sitting at (x, y) on her cloud: ears to the bottom of the cloud. */
+  private roomAt(x: number, y: number) {
+    const S = this.S, pad = 6;
+    return { left: x - 1.95 * S - pad, right: x + 1.95 * S + pad, top: y - 4.8 * S - pad, bottom: y + 1.35 * S + pad };
+  }
+  /** How much content she'd cover there (only what's on screen counts: her ears may stick out the top). */
+  private covers(x: number, y: number) {
+    const r = this.roomAt(x, y);
+    return this.w.overlap({ left: Math.max(0, r.left), right: Math.min(this.W, r.right), top: Math.max(0, r.top), bottom: Math.min(this.H, r.bottom) });
+  }
+  /** Would she cover any content there? */
+  private blocked(x: number, y: number) {
+    return this.covers(x, y) > 0;
+  }
   private avoid(x: number, y: number) {
     // the iPod (bottom right) and the mini player (bottom left)
     if (x > this.W - 300 && y > this.H - 240) return true;
     if (x < 470 && y > this.H - 120) return true;
     return false;
   }
+  // She only ever sits where she covers nothing: on top of an element only if the space above it is free,
+  // otherwise in the margins and gaps between things. Spots close to where she is are strongly preferred, so
+  // she doesn't zip across the page.
   private pickSpot(near = true): Spot | null {
     const S = this.S;
     const cand: [Spot, number][] = [];
     const lo = this.minY, hi = this.maxY;
     const gallery = this.galleryOn();
+    const side = this.sideRule();
+    const closeness = (x: number, y: number) => {
+      // (parts of the page where she belongs on one side: the tech stack and the end, on the right)
+      const sided = side.find((r) => y >= r.top && y - 2.4 * S <= r.bottom);
+      const pref = !sided ? 1 : (sided.side === "right") === x > this.W * 0.55 ? 3 : 0.04;
+      if (!near) return pref;
+      const d = Math.hypot(x - this.cx, y - this.cy);
+      return pref * Math.pow(1.6 - Math.min(1.5, d / (this.W * 0.5)), 2);
+    };
     for (const p of this.w.perches) {
       if (p.el === this.lastSpotEl && Math.random() < 0.6) continue;
       const top = p.top - 1.02 * S;
@@ -296,21 +337,35 @@ export class Brain {
       for (const f of [0.08, 0.92, Math.random()]) {
         const sp: Spot = { el: p.el, f, docY: 0, x: 0 };
         const pos = this.spotPos(sp);
-        if (this.avoid(pos.x, pos.y)) continue;
-        const d = Math.hypot(pos.x - this.cx, pos.y - this.cy);
-        cand.push([sp, ahead * (near ? 1.4 - Math.min(1, d / (this.W * 0.9)) : 1) * (f === 0.08 || f === 0.92 ? 1.3 : 0.6)]);
+        if (!pos.ok || this.avoid(pos.x, pos.y) || this.blocked(pos.x, pos.y)) continue;
+        cand.push([sp, ahead * closeness(pos.x, pos.y) * (f === 0.08 || f === 0.92 ? 1.3 : 0.6)]);
       }
     }
-    // the margins, pinned to the page
-    const gx = this.W < 700 ? [this.W - 2 * S - 4, 2 * S + 4] : [this.W * 0.1 + S, this.W * 0.9 - S];
-    for (const x of gx) {
-      for (let i = 0; i < 2; i++) {
-        const y = rnd(lo + 20, Math.max(lo + 30, hi - 20));
+    // free space anywhere on screen (margins, gaps), pinned to the section it's in
+    // (a fine grid, so she finds the gaps between things too)
+    const cols = this.W < 700 ? [0.1, 0.3, 0.5, 0.7, 0.9] : [0.04, 0.1, 0.16, 0.24, 0.32, 0.4, 0.5, 0.6, 0.68, 0.76, 0.84, 0.9, 0.96];
+    const rows = 11;
+    let best: { sp: Spot; o: number } | null = null;
+    for (const fx of cols) {
+      const x = clamp(fx * this.W, 2 * S + 4, this.W - 2 * S - 4);
+      for (let i = 0; i < rows; i++) {
+        const y = lo + ((Math.max(lo + 10, hi) - lo) * i) / (rows - 1);
         if (this.avoid(x, y)) continue;
-        cand.push([{ el: null, f: 0, x, docY: y + this.w.scrollY, anchor: this.sectionAt(y) }, 0.9]);
+        const sp: Spot = { el: null, f: 0, x, docY: y + this.w.scrollY, anchor: this.sectionAt(y) };
+        const o = this.covers(x, y);
+        if (o > 0) {
+          // (crowded: remember the spot that covers least, leaning to her preferred side)
+          const score = o / closeness(x, y);
+          if (!best || score < best.o) best = { sp, o: score };
+          continue;
+        }
+        // (the edges of the screen are the most out of the way)
+        const edge = fx <= 0.12 || fx >= 0.88 ? 1.5 : 1;
+        cand.push([sp, closeness(x, y) * edge * 0.9]);
       }
     }
-    if (!cand.length) return null;
+    // Nowhere completely free (a crowded phone screen): the spot that covers the least.
+    if (!cand.length) return best?.sp ?? null;
     const s = weighted(cand);
     this.lastSpotEl = s.el;
     return s;
@@ -333,7 +388,9 @@ export class Brain {
     const p = this.w.perches.find((p) => (p.el as HTMLElement).classList?.contains("hero-title"));
     if (!p) return null;
     const s: Spot = { el: p.el, f: 0.86, docY: 0, x: 0 };
-    return this.spotVisible(s) ? s : null;
+    if (!this.spotVisible(s)) return null;
+    const pos = this.spotPos(s);
+    return this.blocked(pos.x, pos.y) ? null : s;
   }
   private resize() {
     this.S = clamp(Math.min(this.W, this.H * 1.2) / 30, 24, 40);
@@ -345,20 +402,11 @@ export class Brain {
     this.press = { x, y, t: this.t, zone };
     this.w.input = this.w.now;
   }
-  pointerMove(x: number, y: number) {
-    if (!this.press) return;
-    const moved = Math.hypot(x - this.press.x, y - this.press.y);
-    if (this.mode !== "held" && this.press.zone !== "cloud" && (moved > 7 || this.t - this.press.t > 0.32)) this.grab(this.press.x, this.press.y, this.press.zone);
-    if (this.mode === "held") {
-      this.held.px = x;
-      this.held.py = y;
-    }
-  }
+  // (She can't be picked up: a press on her is a poke, even if the pointer wanders a little.)
   pointerUp(x: number, y: number) {
     const p = this.press;
     this.press = null;
-    if (this.mode === "held") return this.release();
-    if (p && Math.hypot(x - p.x, y - p.y) < 8) this.poke(p.zone);
+    if (p && Math.hypot(x - p.x, y - p.y) < 24) this.poke(p.zone);
   }
   hover(x: number, y: number) {
     const h = this.geo.head;
@@ -407,6 +455,8 @@ export class Brain {
   private poke(zone: Zone) {
     this.w.input = this.w.now;
     if (!this.grounded()) return;
+    // (she's already made up her mind to leave: more pokes don't keep her here)
+    if (this.leaveAt) return;
     if (zone === "cloud") {
       this.cSquashV += 7;
       this.say("cloud", 0.6);
@@ -451,7 +501,7 @@ export class Brain {
       this.play("Stomp");
       this.face("angry", 3);
       this.say("leave", 1, true);
-      this.leaveAt = this.t + 1.5;
+      this.leaveAt = this.t + 1.1;
     }
     // afterwards: sulk for a bit
     if (n >= 2) this.routine = { name: "sulk", i: -1, until: this.t + (this.durations[this.oneshot?.name ?? ""] ?? 1) };
@@ -532,7 +582,7 @@ export class Brain {
       h.omega = 0;
     }
     const g = 2600, phi = h.psi - h.psi0;
-    h.omega += (-(g / h.L) * Math.sin(phi) - (clamp(h.ax, -20000, 20000) / h.L) * Math.cos(phi) - 3.6 * h.omega) * dt;
+    h.omega += (-(g / h.L) * Math.sin(phi) - (clamp(h.ax, -20000, 20000) / h.L) * Math.cos(phi) - 2.4 * h.omega) * dt;
     h.omega = clamp(h.omega, -9, 9);
     // a swing, never a loop over your hand
     const lim = 1.25;
@@ -888,6 +938,18 @@ export class Brain {
   private rideFrame(dt: number, idle: number) {
     const S = this.S;
     // where the cloud is headed; a new spot once the old one has scrolled away
+    // Something slid under her spot (the gallery moving, content animating in): she moves to free space. (Twice
+    // in a row, a moment apart, so a passing animation doesn't send her off.)
+    if (this.spot && this.t > this.freeCheckAt) {
+      this.freeCheckAt = this.t + 0.4;
+      const p = this.spotPos(this.spot);
+      this.coveredCount = p.ok && this.blocked(p.x, p.y) ? this.coveredCount + 1 : 0;
+      if (this.coveredCount >= 2) {
+        this.coveredCount = 0;
+        const s = this.pickSpot(true);
+        if (s) this.spot = s;
+      }
+    }
     if (!this.spot || !this.spotVisible(this.spot)) {
       const was = this.spot;
       this.spot = this.pickSpot(true);
@@ -905,7 +967,28 @@ export class Brain {
     if (this.spot) {
       const p = this.spotPos(this.spot);
       const far = Math.hypot(p.x - this.cx, p.y - this.cy);
-      this.cloudToward(p.x, p.y, dt, far > this.H * 0.3 ? 2.2 : 6, far > this.H * 0.3 ? 900 : 520);
+      // Long trips (across a big part of the screen, or catching up after a scroll) are one smooth glide:
+      // eased in and out (no jerk at the start or the landing), about 1.1 s to 1.7 s depending on the
+      // distance. Short hops stay soft and floaty.
+      const big = Math.min(this.W, this.H) * 0.35;
+      if (this.glide && this.glide.spot !== this.spot) this.glide = null; // (new destination: start over from here)
+      if (!this.glide && far > big) {
+        this.glide = { spot: this.spot, sx: this.cx, sy: this.cy, t0: this.t, T: clamp(0.8 + far / 1400, 1.1, 1.8) };
+      }
+      if (this.glide) {
+        const gl = this.glide;
+        const u = clamp((this.t - gl.t0) / gl.T, 0, 1);
+        const e = u * u * u * (u * (6 * u - 15) + 10); // smootherstep
+        const nx = gl.sx + (p.x - gl.sx) * e, ny = gl.sy + (p.y - gl.sy) * e;
+        this.cvx = (nx - this.cx) / Math.max(dt, 1e-3);
+        this.cvy = (ny - this.cy) / Math.max(dt, 1e-3);
+        this.cx = nx;
+        this.cy = ny;
+        if (u >= 1) {
+          this.glide = null;
+          this.cvx = this.cvy = 0;
+        }
+      } else this.cloudToward(p.x, p.y, dt, 6, 520);
       if (far < 10 && this.arriveLook) {
         this.arriveLook = false;
         this.setPose("Sit_Idle");
@@ -919,7 +1002,7 @@ export class Brain {
           this.play("Wave");
           this.say("hello", 1, true);
         }
-        this.nextTravelAt = this.t + rnd(25, 40);
+        this.nextTravelAt = this.t + rnd(60, 110);
         this.said.scrollHint = this.t;
       }
     }
@@ -987,7 +1070,7 @@ export class Brain {
     if (!this.petting && !this.busy()) this.runRoutine(idle);
     // wander to somewhere else now and then (not mid-nap or mid-lounge)
     if (this.t > this.nextTravelAt && !this.petting && !this.lying()) {
-      this.nextTravelAt = this.t + rnd(20, 45);
+      this.nextTravelAt = this.t + rnd(60, 120);
       const s = this.pickSpot(true);
       if (s) this.spot = s;
     }
@@ -1360,6 +1443,7 @@ export class Brain {
     o.cloud = { x: this.cx, y: this.cy, squash: this.cSquash * 0.03, tilt: -travel * 0.25 };
     o.zz = this.sleeping;
     o.notes = this.w.music && !this.sleeping && this.mode !== "away";
+    o.swing = this.mode === "held" ? this.held.psi - this.held.psi0 : 0;
     o.visible = true;
   }
 }

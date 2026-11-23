@@ -297,6 +297,14 @@ export class Brain {
     const r = this.roomAt(x, y);
     return this.w.overlap({ left: Math.max(0, r.left), right: Math.min(this.W, r.right), top: Math.max(0, r.top), bottom: Math.min(this.H, r.bottom) });
   }
+  /** Breathing room she keeps from the window's left and right edges. */
+  private edgeGap() {
+    return clamp(this.W * 0.04, 28, 64);
+  }
+  private offEdge(x: number) {
+    const m = this.edgeGap() + 1.95 * this.S;
+    return x >= m - 1 && x <= this.W - m + 1;
+  }
   /** Would she cover any content there? */
   private blocked(x: number, y: number) {
     return this.covers(x, y) > 0;
@@ -337,7 +345,7 @@ export class Brain {
       for (const f of [0.08, 0.92, Math.random()]) {
         const sp: Spot = { el: p.el, f, docY: 0, x: 0 };
         const pos = this.spotPos(sp);
-        if (!pos.ok || this.avoid(pos.x, pos.y) || this.blocked(pos.x, pos.y)) continue;
+        if (!pos.ok || this.avoid(pos.x, pos.y) || this.blocked(pos.x, pos.y) || !this.offEdge(pos.x)) continue;
         cand.push([sp, ahead * closeness(pos.x, pos.y) * (f === 0.08 || f === 0.92 ? 1.3 : 0.6)]);
       }
     }
@@ -346,8 +354,9 @@ export class Brain {
     const cols = this.W < 700 ? [0.1, 0.3, 0.5, 0.7, 0.9] : [0.04, 0.1, 0.16, 0.24, 0.32, 0.4, 0.5, 0.6, 0.68, 0.76, 0.84, 0.9, 0.96];
     const rows = 11;
     let best: { sp: Spot; o: number } | null = null;
+    const m = this.edgeGap() + 1.95 * S;
     for (const fx of cols) {
-      const x = clamp(fx * this.W, 2 * S + 4, this.W - 2 * S - 4);
+      const x = clamp(fx * this.W, m, this.W - m);
       for (let i = 0; i < rows; i++) {
         const y = lo + ((Math.max(lo + 10, hi) - lo) * i) / (rows - 1);
         if (this.avoid(x, y)) continue;
@@ -390,7 +399,7 @@ export class Brain {
     const s: Spot = { el: p.el, f: 0.86, docY: 0, x: 0 };
     if (!this.spotVisible(s)) return null;
     const pos = this.spotPos(s);
-    return this.blocked(pos.x, pos.y) ? null : s;
+    return this.blocked(pos.x, pos.y) || !this.offEdge(pos.x) ? null : s;
   }
   private resize() {
     this.S = clamp(Math.min(this.W, this.H * 1.2) / 30, 24, 40);
@@ -940,11 +949,14 @@ export class Brain {
     // where the cloud is headed; a new spot once the old one has scrolled away
     // Something slid under her spot (the gallery moving, content animating in): she moves to free space. (Twice
     // in a row, a moment apart, so a passing animation doesn't send her off.)
+    // (Only once the page has been still for a moment, and the spot stays covered for over a second: no
+    // reacting to things in motion.)
     if (this.spot && this.t > this.freeCheckAt) {
       this.freeCheckAt = this.t + 0.4;
       const p = this.spotPos(this.spot);
-      this.coveredCount = p.ok && this.blocked(p.x, p.y) ? this.coveredCount + 1 : 0;
-      if (this.coveredCount >= 2) {
+      const still = this.sc.still > 0.6;
+      this.coveredCount = still && p.ok && this.blocked(p.x, p.y) ? this.coveredCount + 1 : 0;
+      if (this.coveredCount >= 3) {
         this.coveredCount = 0;
         const s = this.pickSpot(true);
         if (s) this.spot = s;

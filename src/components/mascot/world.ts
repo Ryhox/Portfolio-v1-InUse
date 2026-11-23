@@ -192,24 +192,78 @@ export class World {
       out.push({ el, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
     });
     this.perches = out;
+    // Content, where it *ends up*: things animating in (sliding up, letters flying in, scaling) are measured
+    // at their final place, so she doesn't dodge something mid-animation and then come back.
+    this.trackShift = this.galleryShift();
     const solids: Box[] = [];
-    const near = (r: DOMRect) => !(r.bottom < -H * 0.5 || r.top > H * 1.5 || r.right < 0 || r.left > this.W);
-    const add = (r: DOMRect) => {
-      if (r.width >= 4 && r.height >= 4) solids.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+    const near = (r: Box) => !(r.bottom < -H * 0.5 || r.top > H * 1.5 || r.right < 0 || r.left > this.W);
+    const add = (r: Box | null) => {
+      if (r && r.right - r.left >= 4 && r.bottom - r.top >= 4 && near(r)) solids.push(r);
     };
     document.querySelectorAll(THING_SEL).forEach((el) => {
       if (el.closest("[data-mascot]")) return;
-      const r = el.getBoundingClientRect();
-      if (!near(r) || (r.width >= this.W * 0.98 && r.height >= H * 0.9)) return; // (a whole-screen backdrop)
+      const r = this.restRect(el);
+      if (!r || (r.right - r.left >= this.W * 0.98 && r.bottom - r.top >= H * 0.9)) return; // (a whole-screen backdrop)
       add(r);
     });
     const range = this.range ??= document.createRange();
     document.querySelectorAll(TEXT_SEL).forEach((el) => {
-      if (el.closest("[data-mascot]") || !near(el.getBoundingClientRect())) return;
+      if (el.closest("[data-mascot]")) return;
+      const rest = this.restRect(el);
+      if (!rest || !near(rest)) return;
+      // Text split into words / letters (the big animated headings and quotes): the words' resting places.
+      const words = el.querySelectorAll(".word, .qw, .w, .hero-word");
+      if (words.length) {
+        words.forEach((wd) => add(this.restRect(wd)));
+        return;
+      }
+      // Plain text: its lines, shifted by however far the block is still animating from its resting place.
+      const live = el.getBoundingClientRect();
+      const dx = rest.left - live.left, dy = rest.top - live.top;
       range.selectNodeContents(el);
-      for (const r of range.getClientRects()) add(r);
+      for (const r of range.getClientRects()) add({ left: r.left + dx, right: r.right + dx, top: r.top + dy, bottom: r.bottom + dy });
     });
     this.solids = solids;
+  }
+
+  private trackShift = 0;
+  /** Layout position: offsets up the chain (these ignore CSS transforms, i.e. animations). Also says where the
+   *  chain ended, to tell whether a fixed-position ancestor is in the way. */
+  private chain(el: HTMLElement) {
+    let x = 0, y = 0;
+    let n: HTMLElement | null = el, end: HTMLElement = el;
+    while (n) {
+      x += n.offsetLeft;
+      y += n.offsetTop;
+      end = n;
+      n = n.offsetParent as HTMLElement | null;
+    }
+    return { x, y, end };
+  }
+  /** Where an element rests once its animations are done (viewport px). Measured from its section's live
+   *  position, so scrolling and pinning still count; the gallery's sideways slide (real movement) is added. */
+  private restRect(el: Element): Box | null {
+    const live = el.getBoundingClientRect();
+    if (!live.width && !live.height) return null;
+    const asLive = { left: live.left, right: live.right, top: live.top, bottom: live.bottom };
+    if (!(el instanceof HTMLElement) || el.offsetParent === null) return asLive; // (svg, fixed things: as they are)
+    const sec = (el.closest("[data-section]") as HTMLElement | null) ?? document.body;
+    const ce = this.chain(el), cs = this.chain(sec);
+    if (ce.end !== cs.end) return asLive; // (a fixed ancestor in between: as it is)
+    const sr = sec.getBoundingClientRect();
+    let left = sr.left + ce.x - cs.x;
+    const top = sr.top + ce.y - cs.y;
+    if (this.trackShift && el.closest(".work-track")) left += this.trackShift;
+    return { left, right: left + el.offsetWidth, top, bottom: top + el.offsetHeight };
+  }
+  /** How far the work gallery has slid sideways (its scroll-driven transform). */
+  private galleryShift() {
+    const track = document.querySelector<HTMLElement>(".work-track");
+    const sec = track?.closest<HTMLElement>("[data-section]");
+    if (!track || !sec || track.offsetParent === null) return 0;
+    const ct = this.chain(track), cs = this.chain(sec);
+    if (ct.end !== cs.end) return 0;
+    return track.getBoundingClientRect().left - (sec.getBoundingClientRect().left + ct.x - cs.x);
   }
 
   /** How much of a box (viewport px) is covered by content: 0 = free. */

@@ -3,8 +3,8 @@
 import { useEffect } from "react";
 import { gsap } from "gsap";
 
-// Project buttons. The fill grows from where the pointer came in and shrinks toward where it left, with a
-// light magnetic pull (the rest is CSS, see .act). Hovering a button also takes over the picture above:
+// Project buttons. The fill grows from where the pointer came in and shrinks toward where it left (the rest
+// is CSS, see .act). Hovering a button also takes over the picture above:
 // "Live demo" turns it into a browser loading the real address, "Source code" decodes a few real lines of
 // the project's code out of scrambled characters, and a project without a demo gets stamped.
 
@@ -178,10 +178,8 @@ export default function ActionFx({ ready }: { ready: boolean }) {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const offs: (() => void)[] = [];
 
-    // Flood fill + magnetic pull.
+    // Flood fill.
     for (const el of document.querySelectorAll<HTMLElement>("[data-act]")) {
-      const mx = gsap.quickTo(el, "x", { duration: 0.6, ease: "power3.out" });
-      const my = gsap.quickTo(el, "y", { duration: 0.6, ease: "power3.out" });
       const at = (e: PointerEvent) => {
         const r = el.getBoundingClientRect();
         el.style.setProperty("--x", `${e.clientX - r.left}px`);
@@ -191,17 +189,9 @@ export default function ActionFx({ ready }: { ready: boolean }) {
         at(e);
         el.classList.add("is-on");
       };
-      const move = (e: PointerEvent) => {
-        if (!fine || e.pointerType !== "mouse") return;
-        const r = el.getBoundingClientRect();
-        mx((e.clientX - (r.left + r.width / 2)) * 0.16);
-        my((e.clientY - (r.top + r.height / 2)) * 0.28);
-      };
       const leave = (e: PointerEvent) => {
         at(e);
         el.classList.remove("is-on");
-        mx(0);
-        my(0);
       };
       const focus = () => {
         if (!el.matches(":focus-visible")) return;
@@ -211,13 +201,11 @@ export default function ActionFx({ ready }: { ready: boolean }) {
       };
       const blur = () => el.classList.remove("is-on");
       el.addEventListener("pointerenter", enter);
-      el.addEventListener("pointermove", move);
       el.addEventListener("pointerleave", leave);
       el.addEventListener("focus", focus);
       el.addEventListener("blur", blur);
       offs.push(() => {
         el.removeEventListener("pointerenter", enter);
-        el.removeEventListener("pointermove", move);
         el.removeEventListener("pointerleave", leave);
         el.removeEventListener("focus", focus);
         el.removeEventListener("blur", blur);

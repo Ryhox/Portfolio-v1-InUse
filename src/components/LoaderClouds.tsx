@@ -46,13 +46,20 @@ const fragment = `
     p += dot(p, p + 45.32);
     return fract(p.x * p.y);
   }
+  // One grid point's random value. The point is wrapped into a small range first (as the sky's and the
+  // flight's are): with the big numbers the finer billows reach, phone GPUs (Android's especially) lose the
+  // precision the hash needs, whole runs of points came out the same, and the clouds broke into flat facets
+  // with hard, straight edges.
+  float cell(vec2 i) {
+    return hash(mod(i, 289.0));
+  }
   // Value noise (as the sky's on a wide screen). Not the flight's rounder phone noise: it clips flat at its
   // extremes, and with clouds this big that showed as smooth white patches on a phone.
   float noise(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    return mix(mix(cell(i), cell(i + vec2(1.0, 0.0)), f.x), mix(cell(i + vec2(0.0, 1.0)), cell(i + vec2(1.0, 1.0)), f.x), f.y);
   }
   float fbm(vec2 p) {
     float s = 0.0;

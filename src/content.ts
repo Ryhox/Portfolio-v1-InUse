@@ -31,63 +31,20 @@ type Project = {
   av1?: string;
   focus?: string;
   links: ProjectLinks;
+  // Its numbers, big, beside the description. Real ones, counted from the project itself (its repo, its README,
+  // its users) on 2026-11-25. `live`: downloads, refreshed every hour from where the mod is published (stats.ts);
+  // the value written here stands in until then.
+  stats: Stat[];
   // A few real lines from the repo, shown when you point at "Source code": short and plain enough that anyone
   // can follow what they do. Copied as they are (a "…" line marks lines left out).
   code: { file: string; lines: string[] };
 };
 
+// (`live.modrinth` / `live.curseforge`: the project's slug there; the downloads on both are added up)
+export type Stat = { value: string; label: string; live?: { modrinth?: string; curseforge?: string } };
+
 // Clips are pre-encoded small (H.264, 1120px, no audio, faststart) with a WebP poster for instant paint.
 export const projects: Project[] = [
-  {
-    id: "stargazer",
-    title: "Stargazer Islands",
-    description: "An explorable Three.js island world. Star the repo and you get your own island in it.",
-    stack: "Three.js · React Three Fiber · GLSL",
-    video: "/work/stargazer.mp4",
-    poster: "/work/stargazer.webp",
-    links: links.projects.stargazer,
-    code: {
-      file: "src/scene/archipelago/archipelago.ts",
-      lines: [
-        "export function buildIslands(logins: string[]): IslandInstance[] {",
-        "  …",
-        "  const stars: IslandInstance[] = logins.map((login, rank) => {",
-        "    const seed = hashLogin(login.toLowerCase())",
-        "    const rng = mulberry32(seed)",
-        "    // Three permanent rolls from the username hash: theme (group), the look",
-        "    // within it, and the size tier. Order matters, keep it stable.",
-        "    let theme = pickWeighted(THEMES, rng)",
-        "    let biome = pickWeighted(theme.variants, rng)",
-        "    let size = pickWeighted(SIZE_TIERS, rng)",
-      ],
-    },
-  },
-  {
-    id: "wieland",
-    title: "Wieland AI",
-    description: "A locally hosted AI assistant running on Ollama. Private, fast, no cloud required.",
-    stack: "JavaScript · Ollama",
-    video: "/work/wieland.mp4",
-    poster: "/work/wieland.webp",
-    // Wide recording: keep the prompt box in frame when the panel crops the sides.
-    focus: "18% 50%",
-    links: links.projects.wieland,
-    code: {
-      file: "server/server.js",
-      lines: [
-        "async function generateChatTitle(",
-        "  firstUserMessage,",
-        '  model = getModelForPlan("free"),',
-        ") {",
-        "  const truncated = firstUserMessage.slice(0, 200);",
-        "  try {",
-        "    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {",
-        '      method: "POST",',
-        '      headers: { "Content-Type": "application/json" },',
-        "  …",
-      ],
-    },
-  },
   {
     id: "pokyh",
     title: "Pokyh",
@@ -97,6 +54,7 @@ export const projects: Project[] = [
     av1: "/work/pokyh.av1.mp4",
     poster: "/work/pokyh.webp",
     links: links.projects.pokyh,
+    stats: [{ value: "120+", label: "students use it" }, { value: "10+", label: "schools" }],
     code: {
       file: "lib/grades.ts",
       lines: [
@@ -115,13 +73,41 @@ export const projects: Project[] = [
     },
   },
   {
+    id: "stargazer",
+    title: "Stargazer Islands",
+    description: "An explorable Three.js island world. Star the repo and you get your own island in it.",
+    stack: "Three.js · React Three Fiber · GLSL",
+    video: "/work/stargazer.mp4",
+    av1: "/work/stargazer.av1.mp4",
+    poster: "/work/stargazer.webp",
+    links: links.projects.stargazer,
+    stats: [{ value: "65,536", label: "live water cells" }, { value: "44", label: "island types" }],
+    code: {
+      file: "src/scene/archipelago/archipelago.ts",
+      lines: [
+        "export function buildIslands(logins: string[]): IslandInstance[] {",
+        "  …",
+        "  const stars: IslandInstance[] = logins.map((login, rank) => {",
+        "    const seed = hashLogin(login.toLowerCase())",
+        "    const rng = mulberry32(seed)",
+        "    // Three permanent rolls from the username hash: theme (group), the look",
+        "    // within it, and the size tier. Order matters, keep it stable.",
+        "    let theme = pickWeighted(THEMES, rng)",
+        "    let biome = pickWeighted(theme.variants, rng)",
+        "    let size = pickWeighted(SIZE_TIERS, rng)",
+      ],
+    },
+  },
+  {
     id: "flylab",
     title: "Fly Lab",
     description: "A real fruit-fly connectome, a stubborn little gambler, and a slot machine that never pays.",
     stack: "Connectome simulation · WebGL",
     video: "/work/flylab.mp4",
+    av1: "/work/flylab.av1.mp4",
     poster: "/work/flylab.webp",
     links: links.projects.flylab,
+    stats: [{ value: "60,001", label: "neurons" }, { value: "151.9M", label: "synapses" }],
     code: {
       file: "src/game/machine.js",
       lines: [
@@ -137,13 +123,67 @@ export const projects: Project[] = [
     },
   },
   {
+    id: "elsewhere",
+    title: "Little Elsewhere",
+    description: "A cozy pixel-art idle game about growing a tiny world from a single spring.",
+    stack: "TypeScript · React · Canvas 2D",
+    video: "/work/elsewhere.mp4",
+    av1: "/work/elsewhere.av1.mp4",
+    poster: "/work/elsewhere.webp",
+    links: links.projects.elsewhere,
+    stats: [{ value: "22", label: "buildings" }, { value: "40", label: "achievements" }],
+    code: {
+      file: "src/art/kit.ts",
+      lines: [
+        "/** A little paned window. Returns its glow rectangle for night lighting. */",
+        "export function windowAt(p: Pix, x: number, y: number, w = 5, h = 5): number[] {",
+        "  p.rect(x, y, w, h, PAL.woodDark[1]);",
+        "  p.rect(x + 1, y + 1, w - 2, h - 2, PAL.blue[3]);",
+        "  p.set(x + 1, y + 1, PAL.blue[4]);",
+        "  p.rect(x, y + h, w, 1, PAL.wood[4]);",
+        "  return [x + 1, y + 1, w - 2, h - 2, GLOW_LAMPLIT];",
+        "}",
+      ],
+    },
+  },
+  {
+    id: "wieland",
+    title: "Wieland AI",
+    description: "A locally hosted AI assistant running on Ollama. Private, fast, no cloud required.",
+    stack: "JavaScript · Ollama",
+    video: "/work/wieland.mp4",
+    av1: "/work/wieland.av1.mp4",
+    poster: "/work/wieland.webp",
+    // Wide recording: keep the prompt box in frame when the panel crops the sides.
+    focus: "18% 50%",
+    links: links.projects.wieland,
+    stats: [],
+    code: {
+      file: "server/server.js",
+      lines: [
+        "async function generateChatTitle(",
+        "  firstUserMessage,",
+        '  model = getModelForPlan("free"),',
+        ") {",
+        "  const truncated = firstUserMessage.slice(0, 200);",
+        "  try {",
+        "    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {",
+        '      method: "POST",',
+        '      headers: { "Content-Type": "application/json" },',
+        "  …",
+      ],
+    },
+  },
+  {
     id: "projectile",
     title: "Projectile Preview",
     description: "A client-side Fabric mod for Minecraft that shows where your projectiles will land before you shoot or throw.",
     stack: "Java · Fabric",
     video: "/work/projectile.mp4",
+    av1: "/work/projectile.av1.mp4",
     poster: "/work/projectile.webp",
     links: links.projects.projectile,
+    stats: [{ value: "14.3k", label: "downloads", live: { modrinth: "projectile.preview", curseforge: "projectile-preview" } }],
     code: {
       file: "src/client/…/projectile/TrajectorySim.java",
       lines: [
@@ -156,28 +196,6 @@ export const projects: Project[] = [
         "",
         "    pos = pos.add(vel.scale(stepTime));",
         "    path[i] = pos;",
-      ],
-    },
-  },
-  {
-    id: "elsewhere",
-    title: "Little Elsewhere",
-    description: "A cozy pixel-art idle game about growing a tiny world from a single spring.",
-    stack: "TypeScript · React · Canvas 2D",
-    video: "/work/elsewhere.mp4",
-    poster: "/work/elsewhere.webp",
-    links: links.projects.elsewhere,
-    code: {
-      file: "src/art/kit.ts",
-      lines: [
-        "/** A little paned window. Returns its glow rectangle for night lighting. */",
-        "export function windowAt(p: Pix, x: number, y: number, w = 5, h = 5): number[] {",
-        "  p.rect(x, y, w, h, PAL.woodDark[1]);",
-        "  p.rect(x + 1, y + 1, w - 2, h - 2, PAL.blue[3]);",
-        "  p.set(x + 1, y + 1, PAL.blue[4]);",
-        "  p.rect(x, y + h, w, 1, PAL.wood[4]);",
-        "  return [x + 1, y + 1, w - 2, h - 2, GLOW_LAMPLIT];",
-        "}",
       ],
     },
   },

@@ -224,6 +224,9 @@ export default function SmoothScroll() {
       const el = id ? document.getElementById(id) : null;
       if (!id && a.getAttribute("href") !== "#") return;
       e.preventDefault();
+      // (a target made focusable on purpose, like the skip link's <main>, also takes the keyboard focus, so the
+      // next Tab carries on from there)
+      if (el?.hasAttribute("tabindex")) el.focus({ preventScroll: true });
       if (!el || id === "top") return instance.scrollTo(0, { duration: 1.6 });
       const pin = ScrollTrigger.getAll().find((st) => st.pin === el || st.trigger === el);
       const target = pin ? pin.start : el.getBoundingClientRect().top + window.scrollY;

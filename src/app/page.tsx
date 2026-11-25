@@ -7,6 +7,10 @@ import ProjectActions, { MediaFx } from "@/components/ProjectActions";
 import Stack from "@/components/Stack";
 import GlassLabel from "@/components/GlassLabel";
 import { github, profile, projects, quotes, socials, type Quote as QuoteData } from "@/content";
+import { getStats } from "@/stats";
+
+// Built once, then again every hour (for the live download count, stats.ts).
+export const revalidate = 3600;
 
 // A poet's line, set big. Its letters come flying in from all over the screen and lock into place as you
 // scroll (Motion.tsx); grouped by word so lines only break between words.
@@ -105,7 +109,7 @@ const jsonLd = {
       name: "ryhox",
       url: "https://ryhox.dev",
       sameAs: [github.href],
-      knowsAbout: ["Three.js", "WebGL", "React Three Fiber", "GLSL", "Next.js", "React", "TypeScript", "JavaScript", "Node.js", "PostgreSQL", "MySQL", "Flutter", "Dart", "Java", "Kotlin", "C#", "Arduino", "GSAP", "Creative coding", "Minecraft modding"],
+      knowsAbout: ["Three.js", "WebGL", "React Three Fiber", "GLSL", "Next.js", "React", "TypeScript", "JavaScript", "Node.js", "PostgreSQL", "MySQL", "Flutter", "Java", "C#", "Arduino", "GSAP", "Creative coding", "Minecraft modding"],
     },
     {
       "@type": "ItemList",
@@ -132,7 +136,8 @@ const LOCK_SCRIPT = `(function(){var h=document.documentElement;h.classList.add(
 
 const STILL_SCRIPT = `(function(){var c=document.querySelector(".loader-still");if(!c)return;var W=innerWidth,H=innerHeight,i=new Image();i.onload=function(){var k=Math.min(devicePixelRatio||1,2)*0.5;c.width=Math.round(W*k);c.height=Math.round(H*k);var h=c.height,w=i.width*h/i.height;c.getContext("2d").drawImage(i,(c.width-w)/2,0,w,h)};i.src="/loader/still-"+(W/H<0.8?"tall":"wide")+"-"+(document.documentElement.dataset.theme==="dark"?"night":"day")+".webp"})()`;
 
-export default function Home() {
+export default async function Home() {
+  const stats = await getStats();
   return (
     <Experience>
       {/* No scrolling while the loader is up, from the first paint on (before the scripts have started too), but
@@ -148,6 +153,10 @@ export default function Home() {
         // Escape "<" so the JSON can never close the script tag.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
       />
+      {/* For keyboards: the first Tab shows it, Enter jumps past the nav to the page itself. Unseen otherwise. */}
+      <a href="#main" className="skip-link chrome-pill">
+        Skip to content
+      </a>
       <header className="nav">
         <a href="#top" className="nav-mark">
           <RollText text={profile.handle} />
@@ -166,7 +175,7 @@ export default function Home() {
         </nav>
       </header>
 
-      <main>
+      <main id="main" tabIndex={-1}>
         <section id="top" className="hero" data-section="hero">
           {/* The name, flat and big. */}
           <div className="hero-frame">
@@ -256,6 +265,19 @@ export default function Home() {
                   <h3 className="panel-title sr-only">{p.title}</h3>
                   <p className="panel-desc">{p.description}</p>
                   <p className="panel-meta">{p.stack}</p>
+                  {/* The project's numbers, in the headlines' chrome (data-c: the fill's copy of the number). */}
+                  {stats[p.id].length ? (
+                    <dl className="panel-stats">
+                      {stats[p.id].map((s) => (
+                        <div key={s.label} className="panel-stat">
+                          <dt className="panel-stat-label">{s.label}</dt>
+                          <dd className="panel-stat-num" data-c={s.value}>
+                            {s.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
                   <ProjectActions title={p.title} links={p.links} />
                 </div>
               </article>
@@ -299,7 +321,6 @@ export default function Home() {
                     href={s.href}
                     target={s.href?.startsWith("http") ? "_blank" : undefined}
                     rel="noreferrer"
-                    data-magnetic
                   >
                     <RollText text={s.label} />
                   </a>
@@ -307,7 +328,7 @@ export default function Home() {
               </li>
             ))}
           </ul>
-          {/* Open air above the meadow: the cat's playground at the end of the page. */}
+          {/* Open air above the meadow, at the end of the page. */}
           <div className="contact-air" aria-hidden />
           {/* The floor of the whole page: the foot of the green hill (drawn in Backdrop.tsx). */}
           <div className="ground">

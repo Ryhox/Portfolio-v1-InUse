@@ -136,6 +136,9 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
       if (dead) return;
       // (From here on the setup is cut as finely as it goes: one step per quote, per row, per stroke, so no part of
       // it holds the page for long.)
+      // Reduced motion (the system's "animation effects" off): what would fly, swing or tilt across the screen
+      // just fades in where it is instead.
+      const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       // ---------- Statement: words light up as you read ----------
       // (Opacity and a small rise only: a live blur on every word had the GPU redraw each one every frame.)
       // Words not read yet are dimmed only as far as they stay readable (3:1 against the sky, the minimum for
@@ -212,13 +215,15 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
           words.forEach((w) => {
             tl.fromTo(
               w,
-              {
-                x: () => side(w) * Math.min(window.innerWidth * 0.45, 640),
-                // (leaning forward, into the way it's going)
-                skewX: () => side(w) * 12,
-                opacity: 0,
-              },
-              { x: 0, skewX: 0, opacity: 1, ease: "power2.out", duration: 1, immediateRender: true },
+              calm
+                ? { opacity: 0 }
+                : {
+                    x: () => side(w) * Math.min(window.innerWidth * 0.45, 640),
+                    // (leaning forward, into the way it's going)
+                    skewX: () => side(w) * 12,
+                    opacity: 0,
+                  },
+              calm ? { opacity: 1, ease: "none", duration: 1, immediateRender: true } : { x: 0, skewX: 0, opacity: 1, ease: "power2.out", duration: 1, immediateRender: true },
               lineOf(w) * 0.22,
             );
           });
@@ -241,7 +246,7 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
       // Everything here follows the scroll both ways: the heading's letters rise out of their masks, each row's
       // rule draws across, its title rises, its words come up, and its capsules drop in one after another like
       // drops of glass landing (silently).
-      const reducedAll = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const reducedAll = calm;
       const coarseAll = window.matchMedia("(pointer: coarse)").matches;
       if (!reducedAll) {
         await next();
@@ -444,10 +449,9 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
           // (CloudPass.tsx), its letters rise out of their masks, scrubbed, done as the gallery pins.
           gsap.fromTo(
             ".work .work-heading .char",
-            { yPercent: 150, rotate: 10 },
+            calm ? { opacity: 0 } : { yPercent: 150, rotate: 10 },
             {
-              yPercent: 0,
-              rotate: 0,
+              ...(calm ? { opacity: 1 } : { yPercent: 0, rotate: 0 }),
               stagger: 0.04,
               ease: "expo.out",
               scrollTrigger: { trigger: ".work", start: "top 40%", end: "top top", scrub: 0.6 },
@@ -474,7 +478,7 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
               lean[i](s);
             });
           };
-          if (softwareGL()) return () => cull.dispose();
+          if (softwareGL() || calm) return () => cull.dispose();
           gsap.ticker.add(leanTick);
           return () => {
             gsap.ticker.remove(leanTick);
@@ -506,7 +510,7 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
               ease: "back.out(1.8)",
               scrollTrigger: { trigger: panel, start: "top 70%", toggleActions: "play none none reverse" },
             });
-            gsap.from(panel.querySelectorAll(".panel-desc, .panel-meta, .panel-actions > *"), {
+            gsap.from(panel.querySelectorAll(".panel-desc, .panel-meta, .panel-stats, .panel-actions > *"), {
               opacity: 0,
               y: 24,
               stagger: 0.08,
@@ -540,7 +544,7 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
             const media = panel.querySelector(".panel-media");
             const img = panel.querySelector(".panel-drift");
             const title = panel.querySelector(".panel-label");
-            const rest = panel.querySelectorAll(".panel-index, .panel-desc, .panel-meta, .panel-actions > *");
+            const rest = panel.querySelectorAll(".panel-index, .panel-desc, .panel-meta, .panel-stats, .panel-actions > *");
             const item: Item = { el: panel, scrubs: [], toggles: [] };
             // Image wipes open from the right (as its left edge goes from the screen's right edge to 40%), then
             // drifts inside its frame (all the way across). (Not without a graphics card: a moving clip and a
@@ -550,7 +554,7 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
                 tween: gsap.fromTo(media, { clipPath: "inset(12% 0% 12% 100% round 28px)" }, { clipPath: "inset(0% 0% 0% 0% round 28px)", ease: "none", paused: true }),
                 at: (left, _width, w) => (w - left) / (w * 0.6),
               });
-              item.scrubs.push({
+              if (!calm) item.scrubs.push({
                 tween: gsap.fromTo(img, { xPercent: -4, scale: 1.1 }, { xPercent: 4, scale: 1.02, ease: "none", paused: true }),
                 at: (left, width, w) => (w - left) / (w + width),
               });
@@ -567,8 +571,8 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
               el: more,
               scrubs: [],
               toggles: [
-                { tween: gsap.from(more.querySelectorAll(".char"), { yPercent: 150, rotate: 12, stagger: 0.03, duration: 1.1, ease: "expo.out", paused: true }), at: 0.75, on: false },
-                { tween: gsap.from(more.querySelector(".more-link"), { scale: 0.3, rotate: -40, autoAlpha: 0, duration: 1.2, ease: "elastic.out(1, 0.5)", paused: true }), at: 0.65, on: false },
+                { tween: gsap.from(more.querySelectorAll(".char"), { ...(calm ? { opacity: 0 } : { yPercent: 150, rotate: 12 }), stagger: 0.03, duration: 1.1, ease: "expo.out", paused: true }), at: 0.75, on: false },
+                { tween: gsap.from(more.querySelector(".more-link"), calm ? { autoAlpha: 0, duration: 0.8, paused: true } : { scale: 0.3, rotate: -40, autoAlpha: 0, duration: 1.2, ease: "elastic.out(1, 0.5)", paused: true }), at: 0.65, on: false },
               ],
             });
           }
@@ -621,11 +625,9 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
         // ---------- Contact: giant "Say hi" rises and swells ----------
         gsap.fromTo(
           ".sayhi .char",
-          { yPercent: 150, rotate: 14, scale: 0.6 },
+          calm ? { opacity: 0 } : { yPercent: 150, rotate: 14, scale: 0.6 },
           {
-            yPercent: 0,
-            rotate: 0,
-            scale: 1,
+            ...(calm ? { opacity: 1 } : { yPercent: 0, rotate: 0, scale: 1 }),
             stagger: 0.08,
             ease: "power3.out",
             scrollTrigger: { trigger: ".contact", start: "top 85%", end: "top 15%", scrub: true },
@@ -701,32 +703,6 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
           };
         });
         return () => tilts.forEach((c) => c());
-      });
-      await next();
-      if (dead) return;
-      ctx.add(() => {
-        // ---------- Magnetic links ----------
-        const magnets = gsap.utils.toArray<HTMLElement>("[data-magnetic]");
-        const cleanups = magnets.map((el) => {
-          const x = gsap.quickTo(el, "x", { duration: 0.6, ease: "elastic.out(1, 0.4)" });
-          const y = gsap.quickTo(el, "y", { duration: 0.6, ease: "elastic.out(1, 0.4)" });
-          const move = (e: PointerEvent) => {
-            const r = el.getBoundingClientRect();
-            x((e.clientX - (r.left + r.width / 2)) * 0.35);
-            y((e.clientY - (r.top + r.height / 2)) * 0.45);
-          };
-          const leave = () => {
-            x(0);
-            y(0);
-          };
-          el.addEventListener("pointermove", move);
-          el.addEventListener("pointerleave", leave);
-          return () => {
-            el.removeEventListener("pointermove", move);
-            el.removeEventListener("pointerleave", leave);
-          };
-        });
-        return () => cleanups.forEach((c) => c());
       });
 
       // Everything measured once more, together (pins, snap points, the gallery's platform).

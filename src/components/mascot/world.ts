@@ -41,7 +41,7 @@ const PERCH_SEL = [
 //   text: measured line by line (the text itself, not the box around it, which is often much wider)
 //   things: pictures, videos, buttons, the iPod, the nav, the mini player (their boxes)
 // (not the text only screen readers get: it's off screen)
-const TEXT_SEL = ":is(h1, h2, h3, h4, p, blockquote, figcaption, .footer a, .footer span, .panel-index, .work-count, .more-handle, .seen, .st-head):not(.sr-only)";
+const TEXT_SEL = ":is(h1, h2, h3, h4, p, blockquote, figcaption, .footer a, .footer span, .panel-index, .panel-stat, .work-count, .more-handle, .seen, .st-head):not(.sr-only)";
 const THING_SEL = [
   "img", "video", ".panel-media", ".glass-cap", ".chrome-pill", ".nav-pill", ".act", ".more-icon",
   "[data-ipod]", ".mini-player.is-on", "[data-mascot-solid]",

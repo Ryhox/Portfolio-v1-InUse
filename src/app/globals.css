@@ -143,6 +143,7 @@ img {
 .work-heading .char,
 .more-title .char,
 .sayhi .char,
+.panel-stat-num,
 .nf-code {
   position: relative;
   padding-block: 0.14em;
@@ -163,6 +164,7 @@ img {
 .work-heading .char::after,
 .more-title .char::after,
 .sayhi .char::after,
+.panel-stat-num::after,
 .nf-code::after {
   content: attr(data-c);
   position: absolute;
@@ -545,6 +547,30 @@ html.is-loading .hero .hero-title {
 .nav-pill:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
+}
+
+/* "Skip to content": out of sight above the screen until a keyboard focuses it (page.tsx). */
+.skip-link {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: calc(var(--gutter) + env(safe-area-inset-left));
+  z-index: 30;
+  height: 2.5rem;
+  padding: 0 1.35rem;
+  font-family: var(--font-ui), sans-serif;
+  font-weight: 800;
+  font-size: 0.85rem;
+  transform: translateY(calc(-100% - 40px));
+}
+
+.skip-link:focus-visible {
+  transform: none;
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+main:focus {
+  outline: none;
 }
 
 /* Day / night: a slide switch in the same chrome. */
@@ -1347,11 +1373,12 @@ html[data-lite] .panel-label {
 /* Number + name under the picture, nudged up so the name just overlaps its bottom edge. */
 .panel-info {
   display: grid;
-  grid-template-columns: auto 1fr;
+  /* (the numbers on the right, beside the words and the buttons, so the buttons stay right under the words) */
+  grid-template-columns: auto 1fr auto;
   grid-template-areas:
-    "index desc"
-    ". meta"
-    ". actions";
+    "index desc stats"
+    ". meta stats"
+    ". actions stats";
   column-gap: 1.4rem;
   align-items: baseline;
   margin-top: 1.4rem;
@@ -1450,6 +1477,44 @@ html[data-lite] .panel-label {
   font-weight: 700;
   font-size: 0.78rem;
   letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* The project's numbers (content.ts): each one big, in the headlines' chrome (the same ice fill, blue rim and
+   stepped extrusion as SAY HI, set up with the headlines at the top of this file), what it counts small
+   under it. Side by side, nothing around them. */
+.panel-stats {
+  grid-area: stats;
+  align-self: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem clamp(1.6rem, 2.6vw, 2.6rem);
+  margin-top: 1.1rem;
+}
+
+.panel-stat {
+  display: flex;
+  /* (the label comes first in the markup, as a definition list needs; the number is drawn above it) */
+  flex-direction: column-reverse;
+  gap: 0.45rem;
+}
+
+.panel-stat-num {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 400;
+  font-synthesis: none;
+  font-size: clamp(2rem, 2.9vw, 3.1rem);
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.panel-stat-label {
+  font-family: var(--font-ui), sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
@@ -1990,6 +2055,11 @@ html[data-lite] .panel-label {
   gap: 1rem clamp(0.9rem, 2vw, 1.6rem);
   margin-top: 6vh;
   margin-top: 6svh;
+}
+
+.contact-links :is(a, button):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
 }
 
 .copy-handle {
@@ -3007,7 +3077,8 @@ html[data-lite] .panel-label {
 
   .panel-info {
     grid-template-columns: 1fr;
-    grid-template-areas: "index" "desc" "meta" "actions";
+    /* (the numbers after the buttons, so the buttons stay right under the words) */
+    grid-template-areas: "index" "desc" "meta" "actions" "stats";
     margin-top: 1rem;
   }
 

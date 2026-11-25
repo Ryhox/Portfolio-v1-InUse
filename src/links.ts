@@ -34,7 +34,7 @@ export const links = {
     },
     flylab: {
       demo: "https://fly.pokyh.com",
-      source: "https://github.com/bedchem/fruit-fly-slot-machine",
+      source: "https://github.com/bedchem/fruit-fly-hub",
     },
     projectile: {
       demo: null,

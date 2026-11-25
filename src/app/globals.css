@@ -18,7 +18,9 @@
   --ink-soft: color-mix(in oklab, var(--ink-soft-day), var(--ink-soft-night) calc(var(--night) * 100%));
   --ink-faint: color-mix(in oklab, var(--ink-faint-day), var(--ink-faint-night) calc(var(--night) * 100%));
   --bg: #5ea8ef;
-  --sky: linear-gradient(180deg, #2f7fe2 0%, #5ea8ef 55%, #a4d2f7 100%);
+  /* The plain sky (the loader's, and behind the real one until it's drawn): the real sky's own blues, sampled
+     from it, so the loader opens onto the same sky and the page counts as drawn from the first paint. */
+  --sky: linear-gradient(180deg, #5ea4ee 0%, #76bbeb 22%, #7dbdee 38%, #66b1f6 50%, #93c9f7 80%, #a7d4f8 100%);
 
   /* Y2K chrome: icy silver, a bright horizon band, a navy edge and a wet highlight. */
   --chrome: linear-gradient(180deg, #ffffff 0%, #eef6fd 14%, #d5e5f4 38%, #a7bbd2 50%, #cde3f3 64%, #eef6fd 82%, #ffffff 100%);
@@ -37,6 +39,13 @@
   --ice: #9ed2ff;
   --gutter: clamp(20px, 5vw, 96px);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* (an upright screen gets a lighter sky: the same sampling on a phone) */
+@media (orientation: portrait) {
+  :root {
+    --sky: linear-gradient(180deg, #6ebdff 0%, #80c8ff 30%, #7ec7ff 50%, #9cd2ff 80%, #abd8fc 100%);
+  }
 }
 
 :root[data-theme="dark"] {
@@ -252,9 +261,12 @@ main {
   z-index: 1;
 }
 
-/* The loader: the page's sky, and the count in the name's chrome letters, big in the middle. At 100 the
-   number rises out of its mask (the same move the name makes coming in) and the loader fades into the sky
-   behind it (Experience.tsx). */
+/* The loader (Experience.tsx). While it's up the page can't be scrolled, but the scrollbar stays (taking it away
+   and giving it back made the whole page jump sideways): the script in page.tsx holds the scroll instead. */
+html.is-loading {
+  overscroll-behavior: none;
+}
+
 .loader {
   position: fixed;
   inset: 0;
@@ -263,31 +275,19 @@ main {
   pointer-events: none;
 }
 
-/* ---------- Loader: the name, a progress bar, then the sky opens (Experience.tsx) ---------- */
+/* ---------- Loader: the name behind the clouds, a progress bar (Experience.tsx) ---------- */
 
-@property --hole {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 0%;
-}
-
-@property --shine {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: -40%;
-}
-
-/* The loader's sky. At the end it opens up from the name outwards: a soft-edged hole that grows until the real
-   sky is all there is (the mask only while it opens). */
+/* The loader's sky (behind the name and the clouds). At the end it gives way to the page's own. */
 .loader-sky {
   position: absolute;
   inset: 0;
   background: var(--sky);
 }
 
-.loader.is-opening .loader-sky {
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent calc(var(--hole) - 26%), #000 var(--hole));
-  mask-image: radial-gradient(circle at 50% 50%, transparent calc(var(--hole) - 26%), #000 var(--hole));
+/* The page's own title stays hidden until the loader has gone: its copy (.forge) is still settling into place
+   until then, and both at once read as two names. */
+html.is-loading .hero .hero-title {
+  visibility: hidden;
 }
 
 /* Laid out exactly like the title's own frame (.hero-frame), so the forged name sits right on the real one and
@@ -309,6 +309,49 @@ main {
 
 .forge-letter {
   display: flex;
+}
+
+/* (at 100% it pops up and springs back: Experience.tsx) */
+.forge-title {
+  will-change: transform;
+}
+
+/* The clouds in front of the name (LoaderClouds.tsx): shown at once when their first frame is drawn (it's the
+   same as the still under them, so nothing changes; a crossfade let the name show through for a moment). */
+.loader-clouds {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+.loader-clouds.is-on {
+  opacity: 1;
+}
+
+/* The clouds' first frame: a still picture (scripts/loader-still.mjs) drawn into .loader-still by the script in
+   page.tsx, over their average colour until then, so the clouds are there from the very first paint. Once the
+   live clouds are drawn over it, it goes (under them, unseen); without a graphics card it parts itself instead: a
+   soft clearing growing from the middle as --open goes 0..1 (Experience.tsx), coming a little closer. */
+.loader-veil {
+  --open: 0;
+  position: absolute;
+  inset: 0;
+  background: rgb(224, 230, 236);
+  transform: scale(calc(1 + var(--open) * 0.2));
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, transparent calc(var(--open) * 110% - 35%), #000 calc(var(--open) * 110%));
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, transparent calc(var(--open) * 110% - 35%), #000 calc(var(--open) * 110%));
+}
+
+:root[data-theme="dark"] .loader-veil {
+  background: rgb(55, 68, 118);
+}
+
+.loader-still {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* The progress, at the bottom: the percentage over a thin chrome bar. */
@@ -357,28 +400,8 @@ main {
   transform: scaleX(0);
   transform-origin: left center;
   background: linear-gradient(180deg, #ffffff 0%, #d6ebff 45%, #6ea4e8 100%);
-  transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-/* Done: a shine runs across the finished chrome, letter after letter. */
-.forge.is-shine .char::after {
-  background:
-    linear-gradient(100deg, transparent calc(var(--shine) - 16%), rgba(255, 255, 255, 0.95) var(--shine), transparent calc(var(--shine) + 16%)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 44%, rgba(30, 80, 160, 0.14) 100%),
-    var(--pearl);
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: forge-shine 0.8s cubic-bezier(0.45, 0, 0.25, 1) calc(var(--i) * 0.06s) both;
-}
-
-@keyframes forge-shine {
-  from {
-    --shine: -40%;
-  }
-  to {
-    --shine: 140%;
-  }
-}
 
 /* ---------- Roll hover ---------- */
 

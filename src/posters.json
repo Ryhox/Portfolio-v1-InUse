@@ -1,0 +1,53 @@
+{
+  "/work/elsewhere.webp": {
+    "ar": 1.7778,
+    "sizes": [
+      640,
+      800,
+      960,
+      1280
+    ]
+  },
+  "/work/flylab.webp": {
+    "ar": 1.5916,
+    "sizes": [
+      640,
+      800
+    ]
+  },
+  "/work/pokyh.webp": {
+    "ar": 1.7778,
+    "sizes": [
+      640,
+      800,
+      960,
+      1280
+    ]
+  },
+  "/work/projectile.webp": {
+    "ar": 1.775,
+    "sizes": [
+      640,
+      800,
+      960,
+      1280
+    ]
+  },
+  "/work/stargazer.webp": {
+    "ar": 1.6985,
+    "sizes": [
+      640,
+      800,
+      960,
+      1280
+    ]
+  },
+  "/work/wieland.webp": {
+    "ar": 2.0444,
+    "sizes": [
+      640,
+      800,
+      960
+    ]
+  }
+}

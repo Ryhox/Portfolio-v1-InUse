@@ -128,9 +128,21 @@ const jsonLd = {
   ],
 };
 
+const LOCK_SCRIPT = `(function(){var h=document.documentElement;h.classList.add("is-loading");var on=function(){return h.classList.contains("is-loading")};var hold=function(e){if(on()){e.preventDefault();e.stopImmediatePropagation()}};var o={passive:false,capture:true};addEventListener("wheel",hold,o);addEventListener("touchmove",hold,o);addEventListener("keydown",function(e){if(on()&&[" ","PageDown","PageUp","ArrowDown","ArrowUp","Home","End"].indexOf(e.key)>=0)e.preventDefault()},true);addEventListener("scroll",function(){if(on()&&scrollY)scrollTo(0,0)},true)})()`;
+
+const STILL_SCRIPT = `(function(){var c=document.querySelector(".loader-still");if(!c)return;var W=innerWidth,H=innerHeight,i=new Image();i.onload=function(){var k=Math.min(devicePixelRatio||1,2)*0.5;c.width=Math.round(W*k);c.height=Math.round(H*k);var h=c.height,w=i.width*h/i.height;c.getContext("2d").drawImage(i,(c.width-w)/2,0,w,h)};i.src="/loader/still-"+(W/H<0.8?"tall":"wide")+"-"+(document.documentElement.dataset.theme==="dark"?"night":"day")+".webp"})()`;
+
 export default function Home() {
   return (
     <Experience>
+      {/* No scrolling while the loader is up, from the first paint on (before the scripts have started too), but
+          with the scrollbar still there: wheel, touch and scroll keys are held, and anything else (dragging the
+          scrollbar) is put back to the top. Experience.tsx lifts it once the loader is gone. */}
+      <script dangerouslySetInnerHTML={{ __html: LOCK_SCRIPT }} />
+      {/* The loader's clouds from the first paint: their first frame (scripts/loader-still.mjs), wide or tall, by
+          day or night, drawn into the loader's canvas as soon as it's here (a canvas, not a picture: the page's
+          main content is the name, not this). Experience.tsx / LoaderClouds.tsx take it from there. */}
+      <script dangerouslySetInnerHTML={{ __html: STILL_SCRIPT }} />
       <script
         type="application/ld+json"
         // Escape "<" so the JSON can never close the script tag.

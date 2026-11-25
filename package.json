@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ipod": "node scripts/build-ipod.mjs"
+    "ipod": "node scripts/build-ipod.mjs",
+    "posters": "node scripts/posters.mjs",
+    "loader-still": "node scripts/loader-still.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

@@ -9,6 +9,7 @@ import { cloudPass } from "./CloudPass";
 import { softwareGL } from "@/lib/gpu";
 import { Cull } from "@/lib/cull";
 import { buildLettersSoon } from "@/lib/letters";
+import posters from "@/posters.json";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -40,8 +41,20 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
       // The clips get their posters first (page.tsx: not fetched with the page).
       await next();
       if (dead) return;
-      for (const v of document.querySelectorAll<HTMLVideoElement>("video[data-poster]")) {
-        v.poster = v.dataset.poster!;
+      // (each the smallest copy that still fills its box sharply on this screen: scripts/posters.mjs)
+      // (all measured first, then all set: no layout in between)
+      const dpr = window.devicePixelRatio || 1;
+      const clips = Array.from(document.querySelectorAll<HTMLVideoElement>("video[data-poster]"), (v) => {
+        const src = v.dataset.poster!;
+        const info = (posters as Record<string, { ar: number; sizes: number[] }>)[src];
+        const box = v.getBoundingClientRect();
+        // (cover: the picture is as wide as the box, or as tall, whichever needs more of it)
+        const need = info && box.width ? Math.max(box.width, box.height * info.ar) * dpr : Infinity;
+        const fit = info?.sizes.find((w) => w >= need);
+        return { v, poster: fit ? src.replace(/\.webp$/, `-${fit}.webp`) : src };
+      });
+      for (const { v, poster } of clips) {
+        v.poster = poster;
         delete v.dataset.poster;
       }
       await next();
@@ -721,58 +734,16 @@ export default function Motion({ ready, onReady, onStep }: { ready: boolean; onR
       if (dead) return;
       ctx.add(() => ScrollTrigger.refresh());
 
-      // ---------- Warm-up, behind the loader ----------
-      // The first trip through each part of the page was the slow one: GSAP sets its tweens up the first time
-      // they play (reading styles in the middle of a frame), and the GPU builds its surfaces the first time each
-      // part is drawn (the gallery stalled for well over a second in total). So the page is run through once
-      // now, a frame or two per stop, and back to the top, all behind the loader. (Made 99.9% opaque for it:
-      // fully opaque, the browser wouldn't draw what's under it at all.)
-      const warm = async () => {
-        // (Without a graphics card there are no GPU surfaces to build ahead, and every stop was drawn in
-        // software: it only made the loader longer.)
-        if (softwareGL()) return;
-        // (The fonts in first: one swapping in while the page is scrolled down here would move what's on screen.)
-        await document.fonts?.ready;
-        if (dead) return;
-        const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
-        const loader = document.querySelector<HTMLElement>(".loader");
-        const l = lenis;
-        const go = (y: number) => {
-          if (l) l.scrollTo(y, { immediate: true, force: true });
-          else window.scrollTo(0, y);
-          ScrollTrigger.update();
-        };
-        const max = document.documentElement.scrollHeight - window.innerHeight;
-        if (loader) loader.style.opacity = "0.999";
-        // (at most 1.2 s: on a very slow PC it gives up early rather than outlast the reveal's safety net)
-        const t0 = performance.now();
-        for (let y = 0; y < max && !dead && performance.now() - t0 < 1200; y += window.innerHeight * 0.6) {
-          go(y);
-          await frame();
-          await frame();
-        }
-        if (!dead) {
-          go(max);
-          await frame();
-          await frame();
-        }
-        go(0);
-        // (the clouds the run left on the screen gone at once, not fading out into the reveal)
-        cloudPass.snap = true;
-        await frame();
-        await frame();
-        if (loader) loader.style.opacity = "";
-      };
+      // (No warm-up pass through the page behind the loader any more: it scrolled the page, and the scrollbar
+      // raced up and down the side with it, while the loader was up. The first trip through each part sets it up.)
       // (Let the refresh (pins, snap points, platform measuring) settle for two frames first.)
       raf = requestAnimationFrame(() => {
         raf = requestAnimationFrame(() => {
-          warm().then(() => {
-            if (dead) return;
-            watchVideos();
-            onReady?.();
-            // (the per-letter effects on the project panels, built while the browser is idle, lib/letters.ts)
-            cancelLetters = buildLettersSoon();
-          });
+          if (dead) return;
+          watchVideos();
+          onReady?.();
+          // (the per-letter effects on the project panels, built while the browser is idle, lib/letters.ts)
+          cancelLetters = buildLettersSoon();
         });
       });
 

@@ -1,0 +1,24 @@
+{
+  "entries": [
+    {
+      "identifier": "urn:air:ryhox.dev:portfolio:ryhox",
+      "displayName": "ryhox",
+      "type": "application/ld+json",
+      "description": "Portfolio of ryhox, who builds playful, tactile things for the web: interactive Three.js worlds, WebGL experiments, apps and Minecraft mods.",
+      "representativeQueries": [
+        "Who is ryhox?",
+        "What has ryhox built?",
+        "How do I contact ryhox?"
+      ],
+      "tags": ["portfolio", "three.js", "webgl", "next.js", "creative coding"],
+      "data": {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "@id": "https://ryhox.dev/#person",
+        "name": "ryhox",
+        "url": "https://ryhox.dev",
+        "sameAs": ["https://github.com/Ryhox"]
+      }
+    }
+  ]
+}

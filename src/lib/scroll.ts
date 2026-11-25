@@ -1,6 +1,6 @@
 // How far above the bottom of the contact section the floor is (the foot of the hill the page ends on; the
 // footer sits on the grass below it). On phones the footer stacks into more lines.
-const floorLift = (vw: number) => (vw < 900 ? 112 : 64);
+export const floorLift = (vw: number) => (vw < 900 ? 112 : 64);
 
 // Shared, mutable scroll state read inside the render loop (no React re-renders).
 export const scroll = {

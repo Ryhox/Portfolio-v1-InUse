@@ -1,7 +1,7 @@
 // WHO she is: a tsundere bunny on a cloud. Lowercase, dry, never impressed, secretly pleased.
 // The voice (mind.ts) decides *when* to talk; this file decides what she notices, what she cares about and how
 // she says it. Two kinds of thoughts:
-//   - "her": her body's reflexes (poked, grabbed, thrown, scrolled around...), sent by ../brain.ts as a LineKey.
+//   - "her": her body's reflexes (poked, petted, scrolled around...), sent by ../brain.ts as a LineKey.
 //     Worded from ../lines.ts plus the variants and context-aware lines below.
 //   - everything else: things she notices and thinks up on her own (projects, dares, hot takes, your habits,
 //     remembering you from last time...).
@@ -56,8 +56,8 @@ const about: Record<string, { see: string[]; deep: string[] }> = {
     deep: ["it simulates the physics before you shoot. cheating, but legal.", "client side. nobody on the server has to install anything. sneaky.", "my aim needed this. i don't have arms that work. you get it."],
   },
   elsewhere: {
-    see: ["Little Elsewhere. a cozy pixel world. i'd move in. the cloud's getting old.", "every sprite in that game is drawn in code. no images. impressive.", "an idle game. basically me, but productive."],
-    deep: ["even the sounds are made in code. witchcraft.", "the windows light up at night. ok that's cute. #tsun#", "you grow a whole world from one spring. i grew a cloud. same thing."],
+    see: ["Little Elsewhere. a cozy pixel world. i'd move in. the cloud's getting old.", "the pixel art in that game. every tiny tree. fine, it's impressive.", "an idle game. basically me, but productive."],
+    deep: ["it even has its own little sounds. cozy. #tsun#", "the windows light up at night. ok that's cute. #tsun#", "you grow a whole world from one spring. i grew a cloud. same thing."],
   },
 };
 
@@ -75,12 +75,8 @@ const extra: Partial<Record<LineKey, string[]>> = {
   poke4: ["I SAID STOP.", "that's it. i'm writing your name down."],
   pet: ["...okay. that's nice. #tsun#", "a little to the left. no. ugh, fine."],
   petLike: ["...don't stop. that's an order.", "this is fine. this is very fine."],
-  held: ["okay, i'm along for the ride.", "where are we going.", "*dangles in protest*"],
-  shaken: ["@_@ i see sounds.", "my brain is soup now.", "WHY."],
-  thrown: ["i can fly. kind of.", "wheeeeee. (i hate this.)"],
   hardLand: ["ow. ow. ow.", "i'm fine. the floor isn't."],
   softLand: ["the cloud gets me.", "nice catch, cloud. you're the only one i trust."],
-  dropOn: ["i live here now. pay rent? no.", "new spot. #meh#"],
   scrollFast: ["whoa, slow down.", "my ears are flapping.", "careful, the cloud gets dizzy."],
   yawn: ["*yawn* ...don't look.", "bunnies nap. it's a whole thing."],
   wake: ["i was resting my eyes.", "who's there. oh. you."],
@@ -100,7 +96,6 @@ const extra: Partial<Record<LineKey, string[]>> = {
   scrollStop: ["here. this is nice. #meh#", "we stopped. good. my lunch thanks you."],
   bottom: ["the bottom. congrats. you scrolled.", "it ends here. nothing else. i checked."],
   project: ["that one's #good#.", "point at it longer. i'll tell you about it."],
-  heldScroll: ["you're scrolling while holding me. very efficient. i'm impressed."],
 };
 
 // Faces for some reflexes (the brain already pulls faces; these only add where it doesn't).
@@ -109,7 +104,6 @@ const reflexFace: Partial<Record<LineKey, Expr>> = {
   poke4: "angry",
   scrollAngry: "angry",
   seasick: "dizzy",
-  shaken: "dizzy",
   pet: "content",
   petLike: "content",
   copy: "smug",
@@ -195,7 +189,7 @@ const projectEl = (id: string) => document.getElementById(`project-${id}`);
 const onPage = (c: Ctx) => c.now - c.w.startedAt;
 const quietFor = (c: Ctx) => c.now - c.w.lastInput;
 /** Chatter only while someone's there and she's up for it (not asleep, not dangling from your cursor). */
-const awake = (c: Ctx) => quietFor(c) < 20_000 && !c.body.sleeping && !c.body.held && !c.body.away;
+const awake = (c: Ctx) => quietFor(c) < 20_000 && !c.body.sleeping && !c.body.away;
 
 /** What kind of visitor you are, from how you behave. */
 function profile(c: Ctx): "skimmer" | "reader" | "clicker" | "explorer" | "lurker" {
@@ -233,7 +227,7 @@ const dares: { id: string; say: string[]; ms: number; test: (s: Stimulus) => boo
     say: ["you can poke me, you know. i react.", "go on, poke me. see what happens."],
     ms: 10_000,
     test: (s) => s.type === "her" && s.key.startsWith("poke"),
-    ok: (c) => !c.body.held,
+    ok: () => true,
     hit: ["...okay, you actually did it.", "you poked me. on purpose. fair enough."],
     miss: ["a respectful visitor. nice.", "good instincts."],
   },
@@ -309,7 +303,7 @@ const thoughts: Thought[] = [
     tireless: true, // every card is a new topic
     want: (c) => {
       const s = got(c, "see");
-      if (!s || c.body.sleeping || c.body.held) return 0;
+      if (!s || c.body.sleeping) return 0;
       c.vars.title = s.title;
       c.vars.id = s.id;
       return 1.5;

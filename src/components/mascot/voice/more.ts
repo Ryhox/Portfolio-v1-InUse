@@ -39,18 +39,10 @@ export const moreExtra: Partial<Record<LineKey, string[]>> = {
   petLike: ["don't stop yet.", "a little longer is fine.", "you're good at this. annoyingly."],
   petEnd: ["that was nice. thanks.", "okay. good session.", "back to floating."],
   petEndLike: ["...already?", "that was short. not that i mind."],
-  held: ["up we go.", "this is new.", "whoa, altitude.", "you've got me."],
-  grabEar: ["ears! ears!", "not the ears, please!"],
-  grabBody: ["okay. carry me then.", "i'm in your hands. literally."],
-  grabFeet: ["the world is upside down.", "this is a different perspective."],
   feet: ["those are ticklish.", "my feet are off limits."],
-  heldLong: ["you can put me down whenever.", "still dangling.", "i'm getting used to this. don't get used to this."],
-  shaken: ["everything's spinning.", "@_@ okay. okay."],
-  thrown: ["airborne!", "i believe i can fly."],
   hardLand: ["oof. ten out of ten landing.", "i'm okay."],
   softLand: ["caught. thanks, cloud.", "safe and fluffy."],
   softLandLike: ["okay, that was fun.", "again? no. maybe."],
-  dropOn: ["nice place. i'll stay a bit.", "a new view. not bad.", "i'll sit here for now."],
   scrollFast: ["whoa, hold on.", "that's quick.", "zoom.", "the cloud's doing its best."],
   fellOff: ["i'm fine. totally planned.", "cloud? cloud!"],
   yawn: ["sleepy.", "*yawn* ...excuse me.", "naptime is calling."],
@@ -85,7 +77,6 @@ export const moreExtra: Partial<Record<LineKey, string[]>> = {
   allTheWayUp: ["back to the beginning.", "the top. hello again."],
   movingAgain: ["and we're off.", "moving again. nice."],
   project: ["that's a good one.", "worth a closer look.", "one of my favourites. maybe."],
-  heldScroll: ["scrolling with me in hand. efficient.", "taking the scenic route."],
 };
 
 export const moreAbout: Record<string, { see: string[]; deep: string[] }> = {
@@ -110,7 +101,7 @@ export const moreAbout: Record<string, { see: string[]; deep: string[] }> = {
     deep: ["works for arrows, tridents, snowballs. anything you throw.", "it predicts what you'll hit, not just where you'll land.", "small mod, big quality-of-life upgrade."],
   },
   elsewhere: {
-    see: ["Little Elsewhere. small, cozy, calming.", "a pocket-sized world to take care of.", "pixel art, all generated in code. impressive."],
+    see: ["Little Elsewhere. small, cozy, calming.", "a pocket-sized world to take care of.", "pixel art, every tiny detail. impressive."],
     deep: ["it's an idle game, so it grows even when you're away.", "every bit of art is code. no image files at all.", "it's the kind of game you leave open in a tab. like me."],
   },
 };

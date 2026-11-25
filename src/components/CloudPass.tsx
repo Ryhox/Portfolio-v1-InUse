@@ -3,10 +3,11 @@
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { theme } from "@/lib/theme";
+import { softwareGL } from "@/lib/gpu";
 
 // Where the flight through the clouds is, 0..1, set by the scroll (Motion.tsx): 0 before, 0.5 deep inside the
 // cloud bank, 1 out the other side.
-export const cloudPass = { target: 0 };
+export const cloudPass = { target: 0, snap: false };
 
 // The way from About into the work: you fly through a bank of the sky's own clouds. Its sunlit top rises in
 // from the bottom of the screen (a hazier, farther layer leads in, slower), it swallows the screen while the
@@ -139,93 +140,140 @@ export default function CloudPass() {
 
   useEffect(() => {
     const cv = canvas.current;
-    if (!cv) return;
+    // (without a graphics card there's no flight through the clouds: drawn in software it was all lag, gpu.ts)
+    if (!cv || softwareGL()) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const gl = cv.getContext("webgl", { premultipliedAlpha: true, alpha: true, antialias: false, depth: false, stencil: false });
+    const gl = cv.getContext("webgl", { premultipliedAlpha: true, alpha: true, antialias: false, depth: false, stencil: false, powerPreference: "high-performance" });
     if (!gl) return;
-    const shader = (type: number, src: string) => {
-      const s = gl.createShader(type)!;
-      gl.shaderSource(s, src);
-      gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.warn(gl.getShaderInfoLog(s));
-      return s;
-    };
-    const prog = gl.createProgram()!;
-    gl.attachShader(prog, shader(gl.VERTEX_SHADER, vertex));
-    gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fragment));
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, "p");
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const u = {
-      res: gl.getUniformLocation(prog, "uRes"),
-      time: gl.getUniformLocation(prog, "uTime"),
-      p: gl.getUniformLocation(prog, "uP"),
-      night: gl.getUniformLocation(prog, "uNight"),
-      phone: gl.getUniformLocation(prog, "uPhone"),
-      front: gl.getUniformLocation(prog, "uFront"),
-      back: gl.getUniformLocation(prog, "uBack"),
-    };
-
-    // Clouds are soft: half the screen's pixels across is plenty (the browser smooths it up). Phones get a
-    // little more (their screens are small, and a third was visibly mushy).
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
-    // From its own box (the large viewport, CSS), and only when that really changes: phones fire resize for
-    // every move of the browser's bars, and resizing a canvas wipes it.
-    const resize = () => {
-      const k = coarse ? 0.6 : 0.5;
-      const w = Math.max(2, Math.round((cv.clientWidth || window.innerWidth) * k));
-      const h = Math.max(2, Math.round((cv.clientHeight || window.innerHeight) * k));
-      if (w === cv.width && h === cv.height) return;
-      cv.width = w;
-      cv.height = h;
-      gl.viewport(0, 0, w, h);
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(cv);
-
-    let cur = 0;
-    let shown = false;
-    const t0 = performance.now();
-    const tick = (_t: number, deltaMs: number) => {
-      const dt = Math.min(deltaMs, 50) / 1000;
-      // Follows the scroll with a little give, so a flick still glides through.
-      cur += (cloudPass.target - cur) * (1 - Math.exp(-dt * 7));
-      if (Math.abs(cloudPass.target - cur) < 0.0005) cur = cloudPass.target;
-      const on = !reduced && cur > 0.004 && cur < 0.996;
-      const top = FRONT.at - FRONT.speed * cur;
-      if (!on) {
-        if (shown) {
-          shown = false;
-          cv.style.visibility = "hidden";
+    // Everything below is set up again if the graphics driver resets (sleep, a driver crash): otherwise the
+    // flight would be gone for good.
+    const setup = () => {
+      // Compiled in the background (KHR_parallel_shader_compile): nothing asks about the shader until the browser
+      // says it's done (asking any sooner makes it finish the compile on the spot, a freeze while the page loads).
+      const shader = (type: number, src: string) => {
+        const s = gl.createShader(type)!;
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+      };
+      const vs = shader(gl.VERTEX_SHADER, vertex);
+      const fs = shader(gl.FRAGMENT_SHADER, fragment);
+      const prog = gl.createProgram()!;
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      const parallel = gl.getExtension("KHR_parallel_shader_compile");
+      let raf = 0;
+      let stop = () => {};
+      const begin = () => {
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+          console.warn(gl.getShaderInfoLog(vs), gl.getShaderInfoLog(fs), gl.getProgramInfoLog(prog));
+          return;
         }
-        return;
-      }
-      if (!shown) {
-        shown = true;
-        cv.style.visibility = "visible";
-      }
-      gl.uniform2f(u.res, cv.width, cv.height);
-      gl.uniform1f(u.time, (performance.now() - t0) / 1000);
-      gl.uniform1f(u.p, cur);
-      gl.uniform1f(u.night, theme.night);
-      gl.uniform1f(u.phone, coarse ? 1 : 0);
-      gl.uniform2f(u.front, top, FRONT.height);
-      gl.uniform2f(u.back, BACK.at - BACK.speed * cur, BACK.height);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.useProgram(prog);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const loc = gl.getAttribLocation(prog, "p");
+        gl.enableVertexAttribArray(loc);
+        gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        const u = {
+          res: gl.getUniformLocation(prog, "uRes"),
+          time: gl.getUniformLocation(prog, "uTime"),
+          p: gl.getUniformLocation(prog, "uP"),
+          night: gl.getUniformLocation(prog, "uNight"),
+          phone: gl.getUniformLocation(prog, "uPhone"),
+          front: gl.getUniformLocation(prog, "uFront"),
+          back: gl.getUniformLocation(prog, "uBack"),
+        };
+
+        // Clouds are soft: half the screen's pixels across is plenty (the browser smooths it up). Phones get a
+        // little more (their screens are small, and a third was visibly mushy).
+        const coarse = window.matchMedia("(pointer: coarse)").matches;
+        // From its own box (the large viewport, CSS), and only when that really changes: phones fire resize for
+        // every move of the browser's bars, and resizing a canvas wipes it.
+        const resize = () => {
+          const k = coarse ? 0.6 : 0.5;
+          const w = Math.max(2, Math.round((cv.clientWidth || window.innerWidth) * k));
+          const h = Math.max(2, Math.round((cv.clientHeight || window.innerHeight) * k));
+          if (w === cv.width && h === cv.height) return;
+          cv.width = w;
+          cv.height = h;
+          gl.viewport(0, 0, w, h);
+        };
+        resize();
+        const ro = new ResizeObserver(resize);
+        ro.observe(cv);
+
+        let cur = 0;
+        let shown = false;
+        const t0 = performance.now();
+        const tick = (_t: number, deltaMs: number) => {
+          const dt = Math.min(deltaMs, 50) / 1000;
+          // Follows the scroll with a little give, so a flick still glides through.
+          cur += (cloudPass.target - cur) * (1 - Math.exp(-dt * 7));
+          if (cloudPass.snap) {
+            cloudPass.snap = false;
+            cur = cloudPass.target;
+          }
+          if (Math.abs(cloudPass.target - cur) < 0.0005) cur = cloudPass.target;
+          const on = !reduced && cur > 0.004 && cur < 0.996;
+          const top = FRONT.at - FRONT.speed * cur;
+          if (!on) {
+            if (shown) {
+              shown = false;
+              cv.style.visibility = "hidden";
+            }
+            return;
+          }
+          if (!shown) {
+            shown = true;
+            cv.style.visibility = "visible";
+          }
+          gl.uniform2f(u.res, cv.width, cv.height);
+          gl.uniform1f(u.time, (performance.now() - t0) / 1000);
+          gl.uniform1f(u.p, cur);
+          gl.uniform1f(u.night, theme.night);
+          gl.uniform1f(u.phone, coarse ? 1 : 0);
+          gl.uniform2f(u.front, top, FRONT.height);
+          gl.uniform2f(u.back, BACK.at - BACK.speed * cur, BACK.height);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        };
+        gsap.ticker.add(tick);
+        stop = () => {
+          gsap.ticker.remove(tick);
+          ro.disconnect();
+          gl.deleteBuffer(buf);
+        };
+      };
+      const wait = () => {
+        if (parallel && !gl.getProgramParameter(prog, parallel.COMPLETION_STATUS_KHR)) {
+          raf = requestAnimationFrame(wait);
+          return;
+        }
+        begin();
+      };
+      wait();
+      return () => {
+        cancelAnimationFrame(raf);
+        stop();
+        gl.deleteProgram(prog);
+      };
     };
-    gsap.ticker.add(tick);
+    let teardown = setup();
+    const lost = (e: Event) => {
+      e.preventDefault();
+      teardown();
+      teardown = () => {};
+    };
+    const restored = () => (teardown = setup());
+    cv.addEventListener("webglcontextlost", lost);
+    cv.addEventListener("webglcontextrestored", restored);
     return () => {
-      gsap.ticker.remove(tick);
-      ro.disconnect();
+      cv.removeEventListener("webglcontextlost", lost);
+      cv.removeEventListener("webglcontextrestored", restored);
       // (The context isn't thrown away: a remount gets the same one back from the canvas.)
-      gl.deleteBuffer(buf);
-      gl.deleteProgram(prog);
+      teardown();
     };
   }, []);
 

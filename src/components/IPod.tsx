@@ -3,10 +3,12 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { lenis } from "./SmoothScroll";
+import { softwareGL } from "@/lib/gpu";
 import * as ipod from "./ipod/os";
 import * as player from "./ipod/player";
 
-const IPodCanvas = dynamic(() => import("./ipod/IPodCanvas"), { ssr: false });
+const loadCanvas = () => import("./ipod/IPodCanvas");
+const IPodCanvas = dynamic(loadCanvas, { ssr: false });
 
 // Canvas size when picked up (in the corner it's the same canvas, scaled down and mostly below the edge).
 const W = 440;
@@ -37,9 +39,27 @@ export default function IPod({ ready }: { ready: boolean }) {
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  // On desktop it's built (downloaded, put together, its shaders compiled) while the loader is still up, out
+  // of sight: that's a moment of work for the browser that would otherwise land in the middle of the intro.
+  // Then it's just there right after it. (Phones only build it when asked.)
+  const [build, setBuild] = useState(false);
   useEffect(() => {
-    if (!ready) return;
-    const t = window.setTimeout(() => setOn(true), 1600);
+    if (window.matchMedia("(max-width: 899px)").matches || softwareGL()) return;
+    let alive = true;
+    const t = window.setTimeout(() => {
+      loadCanvas()
+        .then(() => alive && setBuild(true))
+        .catch(() => undefined);
+    }, 300);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, []);
+  useEffect(() => {
+    // (without a graphics card it isn't there at all: drawn in software it cost the page too much, gpu.ts)
+    if (!ready || softwareGL()) return;
+    const t = window.setTimeout(() => setOn(true), 500);
     return () => window.clearTimeout(t);
   }, [ready]);
 
@@ -61,10 +81,10 @@ export default function IPod({ ready }: { ready: boolean }) {
   const onLoaded = useCallback(() => setLoaded(true), []);
 
   // Phones only build the 3D iPod once it's first asked for.
-  const mounted = on && (!phone || opened);
+  const mounted = phone ? on && opened : on || build;
   useEffect(() => {
-    if (mounted) ipod.power();
-  }, [mounted]);
+    if (mounted && on) ipod.power();
+  }, [mounted, on]);
 
   // What screen readers hear; what's playing.
   useEffect(() => {

@@ -17,11 +17,7 @@ function Quote({ quote }: { quote: QuoteData }) {
       <blockquote className="quote-text" aria-label={quote.text}>
         {words.map((word, w) => (
           <span key={w} className="qw" aria-hidden>
-            {Array.from(word).map((c, i) => (
-              <span key={i} className="qc">
-                {c}
-              </span>
-            ))}
+            {word}
             {w < words.length - 1 ? " " : null}
           </span>
         ))}
@@ -220,18 +216,21 @@ export default function Home() {
                   aria-hidden
                 >
                   {/* Loaded + played only near the viewport (see Motion.tsx); the poster paints instantly. */}
-                  <video
-                    className="panel-img"
-                    data-src={p.video}
-                    data-av1={p.av1}
-                    poster={p.poster}
-                    muted
-                    loop
-                    playsInline
-                    preload="none"
-                    aria-label={`${p.title} preview`}
-                    style={p.focus ? { objectPosition: p.focus } : undefined}
-                  />
+                  {/* (The drift and the tilt move this box, not the video itself: Motion.tsx.) */}
+                  <div className="panel-drift">
+                    <video
+                      className="panel-img"
+                      data-src={p.video}
+                      data-av1={p.av1}
+                      poster={p.poster}
+                      muted
+                      loop
+                      playsInline
+                      preload="none"
+                      aria-label={`${p.title} preview`}
+                      style={p.focus ? { objectPosition: p.focus } : undefined}
+                    />
+                  </div>
                   <MediaFx links={p.links} code={p.code} />
                   {/* The name on a glass label in the corner (the real heading is below, for screen readers). */}
                   <GlassLabel>{p.title}</GlassLabel>

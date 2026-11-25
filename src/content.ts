@@ -162,7 +162,7 @@ export const projects: Project[] = [
   {
     id: "elsewhere",
     title: "Little Elsewhere",
-    description: "A cozy pixel-art idle game about growing a tiny world from a single spring. Every sprite and sound is made in code.",
+    description: "A cozy pixel-art idle game about growing a tiny world from a single spring.",
     stack: "TypeScript · React · Canvas 2D",
     video: "/work/elsewhere.mp4",
     poster: "/work/elsewhere.webp",

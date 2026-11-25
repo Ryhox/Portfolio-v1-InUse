@@ -104,6 +104,20 @@ img {
   white-space: nowrap;
 }
 
+/* Browsers without color-mix() (Safari < 16.2, Firefox < 113): the ink is day or night outright. */
+@supports not (color: color-mix(in oklab, red, red)) {
+  :root {
+    --ink: var(--ink-day);
+    --ink-soft: var(--ink-soft-day);
+    --ink-faint: var(--ink-faint-day);
+  }
+  :root[data-theme="dark"] {
+    --ink: var(--ink-night);
+    --ink-soft: var(--ink-soft-night);
+    --ink-faint: var(--ink-faint-night);
+  }
+}
+
 /* ---------- Y2K chrome, shared ---------- */
 
 /* Y2K headlines, like a chrome logo: blocky Bungee filled with ice (a soft white shine on top), a blue
@@ -308,6 +322,7 @@ main {
   background: rgba(255, 255, 255, 0.35);
   pointer-events: none;
   transition: opacity 0.6s ease;
+  overflow: hidden;
 }
 
 .app:not(.is-ready) .progress {
@@ -318,10 +333,24 @@ main {
 .progress-fill {
   position: absolute;
   inset: 0;
+  background: var(--ink-day);
   background: color-mix(in oklab, var(--ink-day), #4da3ff calc(var(--night) * 100%));
-  transform: scaleX(0);
-  transform-origin: left center;
+  /* It slides in from the left (moved, not stretched): moving a layer is the browser's cheap path; stretching
+     it every frame made it rebuild every layer on the page, every frame. */
+  transform: translateX(-100%);
   will-change: transform;
+}
+
+/* The clear pane over the page while it scrolls under a still mouse (SmoothScroll.tsx). */
+.scroll-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+.scroll-shield.is-on {
+  pointer-events: auto;
 }
 
 /* ---------- Nav ---------- */
@@ -345,6 +374,7 @@ main {
   font-family: var(--font-display), sans-serif;
   font-size: 1.4rem;
   letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
   text-shadow: 0 1px 0 color-mix(in oklab, rgba(255, 255, 255, 0.7), transparent calc(var(--night) * 100%));
 }
 
@@ -480,6 +510,7 @@ main {
 /* ---------- Hero ---------- */
 
 .hero {
+  height: 150vh;
   height: 150svh;
 }
 
@@ -489,6 +520,7 @@ main {
   will-change: transform;
   position: sticky;
   top: 0;
+  height: 100vh;
   height: 100svh;
   display: flex;
   flex-direction: column;
@@ -614,10 +646,12 @@ main {
 }
 
 .about-intro {
+  padding: 14vh var(--gutter) 6vh;
   padding: 14svh var(--gutter) 6svh;
 }
 
 .about-note {
+  margin: 7vh 0 0 auto;
   margin: 7svh 0 0 auto;
   max-width: 22rem;
   font-size: clamp(1.05rem, 1.3vw, 1.25rem);
@@ -629,6 +663,7 @@ main {
 /* A poet's line, set big in the statement's heavy face. The first sits right after the statement, the second
    just before contact. Its letters fly in from all over the screen (Motion.tsx), so they need room in 3D. */
 .quote {
+  padding: 16vh var(--gutter);
   padding: 16svh var(--gutter);
 }
 
@@ -642,20 +677,14 @@ main {
   letter-spacing: -0.035em;
   text-align: right;
   color: var(--ink);
-  perspective: 900px;
 }
 
+/* (The words slide in line by line, Motion.tsx. Each keeps its own layer for good: a handful of them, moved
+   and faded on the GPU, nothing repainted.) */
 .qw {
   display: inline-block;
   /* pre, not nowrap: the space after each word lives inside its box. */
   white-space: pre;
-  transform-style: preserve-3d;
-}
-
-/* (Each letter keeps its own layer for good: letting them come and go as they fly made the browser rebuild
-   its whole layer list every frame. No filter in here: they don't blur any more.) */
-.qc {
-  display: inline-block;
   will-change: transform, opacity;
 }
 
@@ -689,6 +718,7 @@ main {
 }
 
 .interlude .quote {
+  padding: 18vh var(--gutter) 8vh;
   padding: 18svh var(--gutter) 8svh;
 }
 
@@ -705,6 +735,7 @@ main {
 /* (The deep bottom padding is open sky: the flight through the clouds into the work happens there, after
    the last row has had its moment, CloudPass.tsx.) */
 .skills {
+  padding: 14vh var(--gutter) 86vh;
   padding: 14svh var(--gutter) 86svh;
 }
 
@@ -716,6 +747,7 @@ main {
 
 .st-rows {
   list-style: none;
+  margin-top: 9vh;
   margin-top: 9svh;
 }
 
@@ -725,6 +757,7 @@ main {
   grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   align-items: center;
   gap: 1.6rem clamp(2rem, 5vw, 6rem);
+  padding: clamp(2.2rem, 5vh, 3.6rem) 0;
   padding: clamp(2.2rem, 5svh, 3.6rem) 0;
 }
 
@@ -744,6 +777,7 @@ main {
   top: 0;
   height: 2px;
   border-radius: 2px;
+  background: rgb(128 140 170 / 0.2);
   background: color-mix(in oklab, var(--ink), transparent 80%);
   transform-origin: left center;
 }
@@ -812,6 +846,72 @@ main {
   -webkit-tap-highlight-color: transparent;
   /* Only a soft shadow underneath (nothing round the edge, which would read as an outline). */
   box-shadow: 0 18px 30px -20px rgb(4 24 70 / calc(0.45 + var(--night) * 0.3));
+}
+
+/* Without a graphics card (gpu.ts) the sky is drawn too coarse to carry glass (it came out pixelated): the
+   capsule is its own glass, as on touch screens below, only without the blur (blurring in software cost every
+   frame). */
+html[data-lite] .glass-cap {
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / calc(0.4 - var(--night) * 0.3)) 0%,
+    rgb(255 255 255 / calc(0.12 - var(--night) * 0.07)) 52%,
+    rgb(255 255 255 / calc(0.24 - var(--night) * 0.16)) 100%
+  );
+  box-shadow:
+    inset 0 1.5px 0.5px -0.5px rgb(255 255 255 / calc(0.95 - var(--night) * 0.5)),
+    inset 0 -1px 0.5px rgb(255 255 255 / calc(0.5 - var(--night) * 0.3)),
+    inset 0 0 0 1px rgb(255 255 255 / calc(0.3 - var(--night) * 0.18)),
+    inset 0 -12px 16px -12px rgb(255 255 255 / calc(0.6 - var(--night) * 0.4)),
+    0 18px 30px -20px rgb(4 24 70 / calc(0.45 + var(--night) * 0.3));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ...and the sky is two still pictures there (Scene.tsx): the clouds, and the hill fading in over the last
+   screen. */
+html[data-lite] .scene {
+  background-image: var(--sky-top, var(--sky));
+  background-size: cover;
+  background-position: center;
+}
+
+html[data-lite] .scene::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--sky-end, none);
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+html[data-lite] .scene.is-end::after {
+  opacity: 1;
+}
+
+/* ...and the projects drawn flat there: no extra layers, no filters, the name's label tinted instead of
+   blurred (each of those cost a full extra pass per frame in software). */
+html[data-lite] :is(.panel, .panel-media, .panel-drift, .more-icon) {
+  will-change: auto;
+}
+
+html[data-lite] :is(.panel:hover, .panel.is-demo, .panel.is-none) .panel-img,
+html[data-lite] .more-icon {
+  filter: none;
+}
+
+html[data-lite] .panel-img {
+  transition: none;
+}
+
+html[data-lite] .panel-label {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0) 60%),
+    rgb(8 18 44 / 0.5);
 }
 
 /* On touch screens the page scrolls on its own, ahead of anything WebGL draws, so glass drawn by the sky
@@ -917,6 +1017,7 @@ main {
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 0.24em;
+  text-decoration-color: var(--ice);
   text-decoration-color: color-mix(in oklab, var(--ice), transparent 20%);
   transition: text-decoration-color 0.3s ease;
 }
@@ -977,6 +1078,7 @@ main {
 
 .work {
   position: relative;
+  height: 100vh;
   height: 100svh;
   overflow: hidden;
 }
@@ -988,6 +1090,7 @@ main {
   height: 100%;
   width: max-content;
   /* Headroom above the images, under the nav. */
+  padding: 14vh 12vw 0 var(--gutter);
   padding: 14svh 12vw 0 var(--gutter);
   will-change: transform;
 }
@@ -1061,7 +1164,9 @@ main {
   position: relative;
   display: block;
   will-change: transform, clip-path;
+  width: 100%;
   aspect-ratio: 16 / 10;
+  max-height: 54vh;
   max-height: 54svh;
   overflow: hidden;
   border-radius: 28px;
@@ -1085,12 +1190,20 @@ main {
 
 /* (Its own layer: it drifts with the scroll, and as part of the frame's paint the video was redrawn into it
    every frame.) */
+/* The box the video drifts and tilts in (Motion.tsx), its own layer. Moved instead of the video: a video's own
+   layer moved every frame made the browser rebuild all its layers every frame (with the videos showing, the
+   gallery lost a sixth of its frames on a slow PC). */
+.panel-drift {
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+  will-change: transform;
+}
+
 .panel-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform-origin: center;
-  will-change: transform;
   transition: filter 0.6s ease;
 }
 
@@ -1667,6 +1780,7 @@ main {
   flex-direction: column;
   align-items: flex-start;
   /* Plenty of sky between the title and the GitHub mark. */
+  gap: max(15vh, 130px);
   gap: max(15svh, 130px);
   padding-right: 6vw;
 }
@@ -1684,7 +1798,9 @@ main {
 }
 
 .more-icon {
+  width: clamp(130px, 22vh, 240px);
   width: clamp(130px, 22svh, 240px);
+  height: clamp(130px, 22vh, 240px);
   height: clamp(130px, 22svh, 240px);
   color: var(--ink);
   filter: drop-shadow(0 10px 16px rgba(14, 34, 86, 0.3));
@@ -1714,10 +1830,12 @@ main {
    rest on. */
 .contact {
   position: relative;
+  min-height: 100vh;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   align-items: center;
+  padding: 14vh var(--gutter) 0;
   padding: 14svh var(--gutter) 0;
   text-align: center;
   overflow: hidden;
@@ -1739,6 +1857,7 @@ main {
   flex-wrap: wrap;
   justify-content: center;
   gap: 1rem clamp(0.9rem, 2vw, 1.6rem);
+  margin-top: 6vh;
   margin-top: 6svh;
 }
 
@@ -1762,6 +1881,7 @@ main {
 .contact-air {
   width: 100%;
   flex: 1 1 auto;
+  min-height: max(24vh, 190px);
   min-height: max(24svh, 190px);
 }
 
@@ -1769,6 +1889,7 @@ main {
 .ground {
   position: relative;
   width: 100vw;
+  height: clamp(150px, 21vh, 230px);
   height: clamp(150px, 21svh, 230px);
   display: flex;
   align-items: flex-end;
@@ -1784,6 +1905,7 @@ main {
   gap: 1rem;
   font-size: 0.82rem;
   font-weight: 600;
+  color: #0f2d18;
   color: color-mix(in oklab, #0f2d18, #d4e6ea calc(var(--night) * 100%));
   text-shadow: none;
 }
@@ -1792,6 +1914,11 @@ main {
 @media (min-width: 900px) {
   .footer {
     padding-right: 230px;
+  }
+
+  /* (no iPod without a graphics card) */
+  html[data-lite] .footer {
+    padding-right: 0;
   }
 }
 
@@ -2273,6 +2400,7 @@ main {
 /* ---------- Legal & privacy: one frosted card on the sky ---------- */
 
 .legal {
+  min-height: 100vh;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -2505,6 +2633,7 @@ html:has(.nf) body {
 
 .nf {
   position: relative;
+  height: 100vh;
   height: 100svh;
   display: flex;
   flex-direction: column;
@@ -2531,6 +2660,7 @@ html:has(.nf) body {
 }
 
 .nf-title {
+  margin-top: 6vh;
   margin-top: 6svh;
   font-family: var(--font-ui), sans-serif;
   font-weight: 800;
@@ -2548,6 +2678,7 @@ html:has(.nf) body {
 
 /* A chrome capsule: lifts on hover and presses in on click. */
 .nf-home {
+  margin-top: 5vh;
   margin-top: 5svh;
   height: 3.4rem;
   padding: 0 2rem;
@@ -2628,14 +2759,17 @@ html:has(.nf) body {
   }
 
   .hero {
+    height: 140vh;
     height: 140svh;
   }
 
   .about-intro {
+    padding: 12vh var(--gutter) 4vh;
     padding: 12svh var(--gutter) 4svh;
   }
 
   .quote {
+    padding: 10vh var(--gutter);
     padding: 10svh var(--gutter);
   }
 
@@ -2645,6 +2779,7 @@ html:has(.nf) body {
 
 
   .skills {
+    padding: 10vh var(--gutter) 70vh;
     padding: 10svh var(--gutter) 70svh;
   }
 

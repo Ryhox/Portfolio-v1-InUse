@@ -20,7 +20,6 @@ export type Emotion = Expr;
 /** Her body's state, handed over by the brain every frame. */
 export type Body = {
   sleeping: boolean;
-  held: boolean;
   away: boolean; // off screen / gone
   annoy: number;
   like: number;
@@ -140,7 +139,7 @@ export class Voice {
   readonly mood: Mood;
   /** What she's talking about, in px (viewport), while she says it: the brain makes her look there. */
   attention: { x: number; y: number } | null = null;
-  body: Body = { sleeping: false, held: false, away: false, annoy: 0, like: 0.2, energy: 0.8 };
+  body: Body = { sleeping: false, away: false, annoy: 0, like: 0.2, energy: 0.8 };
 
   private senses: Senses | null = null;
   private g: Grammar;
@@ -207,7 +206,7 @@ export class Voice {
   }
 
   /** Her body wants to say something (one of the LineKeys). `chance` (0..1) is how much it wants to; forced
-   *  ones are reflexes (poked, grabbed, thrown). The voice decides. */
+   *  ones are reflexes (poked, flung off her cloud). The voice decides. */
   hear(key: string, chance = 1, force = false) {
     if (!this.senses) return;
     this.perceive({ type: "her", key, chance, force, at: performance.now() });

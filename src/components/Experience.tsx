@@ -10,8 +10,10 @@ import IPod from "./IPod";
 import CloudPass from "./CloudPass";
 import MiniPlayer from "./MiniPlayer";
 import TabTitle from "./TabTitle";
+import Safe from "./Safe";
 import Mascot from "./mascot/Mascot";
 import { intro } from "@/lib/intro";
+import { softwareGL } from "@/lib/gpu";
 
 const Scene = dynamic(() => import("./three/Scene"), { ssr: false });
 
@@ -28,6 +30,23 @@ export default function Experience({ children }: { children: ReactNode }) {
   const [motionSetup, setMotionSetup] = useState(false);
   const onMotionReady = useCallback(() => setMotionSetup(true), []);
   const onSceneReady = useCallback(() => setSceneReady(true), []);
+
+  // Without a graphics card (gpu.ts) some things are drawn lighter (globals.css: the tech stack's glass).
+  useEffect(() => {
+    if (softwareGL()) document.documentElement.dataset.lite = "";
+  }, []);
+
+  // The loader never gets stuck: if the sky hasn't reported ready after a while (a GPU that never finishes,
+  // a canvas that couldn't start), the page comes in anyway; same if the scroll setup never reports back.
+  useEffect(() => {
+    const t = window.setTimeout(() => setSceneReady(true), Math.max(0, 9000 - performance.now()));
+    return () => window.clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!sceneReady) return;
+    const t = window.setTimeout(() => setMotionSetup(true), 2500);
+    return () => window.clearTimeout(t);
+  }, [sceneReady]);
 
   // Displayed value eases toward the real loading progress.
   const progress = useRef({ v: 0, target: 4, finishing: false, born: 0 });
@@ -122,7 +141,15 @@ export default function Experience({ children }: { children: ReactNode }) {
         <Motion ready={sceneReady} onReady={onMotionReady} />
         <ActionFx ready={motionSetup} />
         <div className="scene" aria-hidden>
-          <Scene eventSource={root} onReady={onSceneReady} onProgress={onProgress} />
+          <Safe
+            onError={() => {
+              // (no sky, so nothing to draw the capsules' glass: their CSS glass instead, globals.css)
+              document.documentElement.dataset.lite = "";
+              onSceneReady();
+            }}
+          >
+            <Scene eventSource={root} onReady={onSceneReady} onProgress={onProgress} />
+          </Safe>
         </div>
         {/* The flight through the clouds between About and the work (over the page, under the nav). */}
         <CloudPass />
@@ -145,10 +172,14 @@ export default function Experience({ children }: { children: ReactNode }) {
         {children}
       </div>
       {/* Outside the app root: presses on the iPod never reach the 3D scenes behind it. */}
-      <IPod ready={revealed} />
+      <Safe>
+        <IPod ready={revealed} />
+      </Safe>
       <MiniPlayer />
       {/* The cloud rider who hangs around the page (mascot/brain.ts). */}
-      <Mascot ready={revealed} />
+      <Safe>
+        <Mascot ready={revealed} />
+      </Safe>
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { theme } from "@/lib/theme";
 import { player } from "../ipod/player";
+import { lenis } from "../SmoothScroll";
 
 // What she can perceive: the screen, the pointer, the scroll, the page's elements she can sit on, and the
 // things happening on the page (music, day / night, text being selected or copied, keys, the tab going
@@ -20,8 +21,7 @@ export type WorldEvent =
   | { type: "click"; x: number; y: number }
   | { type: "link"; x: number; y: number; media: boolean };
 
-// Things worth sitting on: headings, text blocks, cards, buttons, the footer. (Anything can opt in with
-// data-mascot-perch.)
+// Things worth a glance now and then (brain.ts): headings, text blocks, cards, buttons, the footer.
 const PERCH_SEL = [
   ".hero-title",
   ".statement",
@@ -35,19 +35,22 @@ const PERCH_SEL = [
   ".sayhi",
   ".contact-links",
   ".footer",
-  "[data-mascot-perch]",
 ].join(",");
 
 // Content she must never cover, so she stays in the free space around it:
 //   text: measured line by line (the text itself, not the box around it, which is often much wider)
 //   things: pictures, videos, buttons, the iPod, the nav, the mini player (their boxes)
-const TEXT_SEL = "h1, h2, h3, h4, p, blockquote, figcaption, .footer a, .footer span, .panel-index, .work-count, .more-handle, .seen, .st-head";
+// (not the text only screen readers get: it's off screen)
+const TEXT_SEL = ":is(h1, h2, h3, h4, p, blockquote, figcaption, .footer a, .footer span, .panel-index, .work-count, .more-handle, .seen, .st-head):not(.sr-only)";
 const THING_SEL = [
   "img", "video", ".panel-media", ".glass-cap", ".chrome-pill", ".nav-pill", ".act", ".more-icon",
   "[data-ipod]", ".mini-player.is-on", "[data-mascot-solid]",
 ].join(",");
 
 export type Box = { left: number; right: number; top: number; bottom: number };
+/** (`media`: part of a project video, which she can float over in the gallery. `work`: in the gallery,
+ *  which stays put on the screen while it's pinned, however far the page scrolls.) */
+type Solid = Box & { media?: boolean; work?: boolean };
 
 const KONAMI = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown", "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a"];
 
@@ -62,7 +65,7 @@ export class World {
   scrollV = 0;
   perches: Perch[] = [];
   /** Content on screen (and a screen above / below), which she keeps clear of. */
-  solids: Box[] = [];
+  solids: Solid[] = [];
   events: WorldEvent[] = [];
   music = false;
   night = 0;
@@ -71,6 +74,7 @@ export class World {
   input = 0;
   private offs: (() => void)[] = [];
   private scanAt = 0;
+  private scanQueued = false;
   private range: Range | null = null;
   private lastScroll = 0;
   private konami = 0;
@@ -79,7 +83,8 @@ export class World {
   attach() {
     this.now = performance.now() / 1000;
     this.input = this.now;
-    this.W = window.innerWidth;
+    // (the width she can use: without the scrollbar)
+    this.W = document.documentElement.clientWidth || window.innerWidth;
     this.H = window.innerHeight;
     this.coarse = window.matchMedia("(pointer: coarse)").matches;
     this.reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -119,8 +124,9 @@ export class World {
     on("touchstart", () => (this.input = performance.now() / 1000), { passive: true });
     on("resize", () => {
       // (phones resize the page whenever their browser bars slide; only a change of width is a real resize)
-      const wide = Math.abs(window.innerWidth - this.W) > 30;
-      this.W = window.innerWidth;
+      const w = document.documentElement.clientWidth || window.innerWidth;
+      const wide = Math.abs(w - this.W) > 30;
+      this.W = w;
       this.H = window.innerHeight;
       if (wide) this.events.push({ type: "resize" });
     });
@@ -182,11 +188,51 @@ export class World {
     this.offs = [];
   }
 
+  // What there is to measure, found once (and again every couple of seconds, in case the page changed), and
+  // where each piece was in the page the last time it was measured (document px), so the ones far from the
+  // screen can be left alone in between.
+  private lists: { perches: Element[]; things: { el: Element; media: boolean; work: boolean }[]; texts: { el: Element; work: boolean; words: Element[] }[] } | null = null;
+  private fullAt = -1e9;
+  private spans = new WeakMap<Element, [number, number]>();
+
+  private findAll() {
+    const mine = (el: Element) => !!el.closest("[data-mascot]");
+    this.lists = {
+      perches: [...document.querySelectorAll(PERCH_SEL)],
+      things: [...document.querySelectorAll(THING_SEL)].filter((el) => !mine(el)).map((el) => ({ el, media: !!el.closest(".panel-media"), work: !!el.closest(".work") })),
+      texts: [...document.querySelectorAll(TEXT_SEL)].filter((el) => !mine(el)).map((el) => ({ el, work: !!el.closest(".work"), words: [...el.querySelectorAll(".word, .qw, .w, .hero-word")] })),
+    };
+  }
+
   private scan() {
     const out: Perch[] = [];
     const H = this.H;
-    document.querySelectorAll(PERCH_SEL).forEach((el) => {
-      const r = el.getBoundingClientRect();
+    // (Measuring the page is the costly part of her, so it's done a few times a second, each element's
+    // layout read once, and only what's near the screen; in between, what was measured is moved along with
+    // the scroll, see overlap(). Every couple of seconds, everything, in case the page changed.)
+    this.chains.clear();
+    this.secRects.clear();
+    this.scanY = window.scrollY;
+    const full = !this.lists || this.now - this.fullAt > 2;
+    if (full) {
+      this.fullAt = this.now;
+      this.findAll();
+    }
+    const lists = this.lists!;
+    const lo = this.scanY - H * 0.8, hi = this.scanY + H * 1.8;
+    // (far from the screen last time: skip it; the gallery's pieces move sideways while it's pinned, so always)
+    const far = (el: Element, work: boolean) => {
+      if (full || (work && this.workPinned)) return false;
+      const sp = this.spans.get(el);
+      return !!sp && (sp[1] < lo || sp[0] > hi);
+    };
+    const keep = <R extends Box | null>(el: Element, r: R): R => {
+      if (r) this.spans.set(el, [r.top + this.scanY, r.bottom + this.scanY]);
+      return r;
+    };
+    lists.perches.forEach((el) => {
+      if (far(el, false)) return;
+      const r: DOMRect = keep(el, el.getBoundingClientRect());
       if (r.width < 90 || r.height < 12) return;
       if (r.bottom < -H || r.top > 2 * H || r.right < 0 || r.left > this.W) return;
       out.push({ el, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
@@ -195,50 +241,88 @@ export class World {
     // Content, where it *ends up*: things animating in (sliding up, letters flying in, scaling) are measured
     // at their final place, so she doesn't dodge something mid-animation and then come back.
     this.trackShift = this.galleryShift();
-    const solids: Box[] = [];
+    const solids: Solid[] = [];
     const near = (r: Box) => !(r.bottom < -H * 0.5 || r.top > H * 1.5 || r.right < 0 || r.left > this.W);
-    const add = (r: Box | null) => {
-      if (r && r.right - r.left >= 4 && r.bottom - r.top >= 4 && near(r)) solids.push(r);
+    const add = (r: Box | null, media = false, work = false) => {
+      if (r && r.right - r.left >= 4 && r.bottom - r.top >= 4 && near(r)) solids.push(media || work ? { ...r, media, work } : r);
     };
-    document.querySelectorAll(THING_SEL).forEach((el) => {
-      if (el.closest("[data-mascot]")) return;
-      const r = this.restRect(el);
+    lists.things.forEach(({ el, media, work }) => {
+      if (far(el, work)) return;
+      const r = keep(el, this.restRect(el));
       if (!r || (r.right - r.left >= this.W * 0.98 && r.bottom - r.top >= H * 0.9)) return; // (a whole-screen backdrop)
-      add(r);
+      add(r, media, work);
     });
     const range = this.range ??= document.createRange();
-    document.querySelectorAll(TEXT_SEL).forEach((el) => {
-      if (el.closest("[data-mascot]")) return;
-      const rest = this.restRect(el);
+    lists.texts.forEach(({ el, work, words }) => {
+      if (far(el, work)) return;
+      const rest = keep(el, this.restRect(el));
       if (!rest || !near(rest)) return;
       // Text split into words / letters (the big animated headings and quotes): the words' resting places.
-      const words = el.querySelectorAll(".word, .qw, .w, .hero-word");
       if (words.length) {
-        words.forEach((wd) => add(this.restRect(wd)));
+        words.forEach((wd) => add(this.restRect(wd), false, work));
         return;
       }
       // Plain text: its lines, shifted by however far the block is still animating from its resting place.
       const live = el.getBoundingClientRect();
       const dx = rest.left - live.left, dy = rest.top - live.top;
       range.selectNodeContents(el);
-      for (const r of range.getClientRects()) add({ left: r.left + dx, right: r.right + dx, top: r.top + dy, bottom: r.bottom + dy });
+      for (const r of range.getClientRects()) add({ left: r.left + dx, right: r.right + dx, top: r.top + dy, bottom: r.bottom + dy }, false, work);
     });
     this.solids = solids;
+    // The gallery: where its pin starts and ends (its pin-spacer: as tall as the pin lasts, plus a screen), the
+    // videos' top edge and where "and much more" is.
+    const work = document.querySelector<HTMLElement>(".work");
+    const spacer = work?.parentElement?.classList.contains("pin-spacer") ? work.parentElement : null;
+    if (spacer) {
+      this.pinFrom = spacer.getBoundingClientRect().top + this.scanY;
+      this.pinTo = this.pinFrom + spacer.offsetHeight - H;
+    } else {
+      this.pinFrom = Infinity;
+      this.pinTo = -Infinity;
+    }
+    let top = Infinity;
+    document.querySelectorAll(".work .panel-media").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.right > 0 && r.left < this.W && r.height > 40) top = Math.min(top, r.top);
+    });
+    this.mediaTop = Number.isFinite(top) ? top : NaN;
+    const more = document.querySelector(".work .panel-more");
+    this.moreLeft = more ? more.getBoundingClientRect().left : Infinity;
+    this.docH = document.documentElement.scrollHeight;
   }
 
   private trackShift = 0;
+  /** Scroll position at the last measuring, and whether the gallery is pinned (now). */
+  private scanY = 0;
+  /** The gallery is pinned (it stays put on the screen while the page scrolls). Worked out from the scroll
+   *  position and the pin's range (measured with the rest), not by measuring the gallery every frame. */
+  workPinned = false;
+  private pinFrom = Infinity;
+  private pinTo = -Infinity;
+  /** Measured with the rest: the top of the project videos on screen (viewport px, NaN: none), and the left
+   *  edge of "and much more". */
+  mediaTop = NaN;
+  moreLeft = Infinity;
+  /** The page's height (measured with the rest, not every frame). */
+  docH = 0;
+  private chains = new Map<HTMLElement, { x: number; y: number; end: HTMLElement }>();
+  private secRects = new Map<Element, DOMRect>();
   /** Layout position: offsets up the chain (these ignore CSS transforms, i.e. animations). Also says where the
-   *  chain ended, to tell whether a fixed-position ancestor is in the way. */
-  private chain(el: HTMLElement) {
-    let x = 0, y = 0;
-    let n: HTMLElement | null = el, end: HTMLElement = el;
-    while (n) {
-      x += n.offsetLeft;
-      y += n.offsetTop;
-      end = n;
-      n = n.offsetParent as HTMLElement | null;
-    }
-    return { x, y, end };
+   *  chain ended, to tell whether a fixed-position ancestor is in the way. (Remembered for the rest of the
+   *  measuring, so the elements up the chain are read once, not once per element under them.) */
+  private chain(el: HTMLElement): { x: number; y: number; end: HTMLElement } {
+    const known = this.chains.get(el);
+    if (known) return known;
+    const up = el.offsetParent as HTMLElement | null;
+    const rest = up ? this.chain(up) : { x: 0, y: 0, end: el };
+    const c = { x: rest.x + el.offsetLeft, y: rest.y + el.offsetTop, end: rest.end };
+    this.chains.set(el, c);
+    return c;
+  }
+  private secRect(sec: Element) {
+    let r = this.secRects.get(sec);
+    if (!r) this.secRects.set(sec, (r = sec.getBoundingClientRect()));
+    return r;
   }
   /** Where an element rests once its animations are done (viewport px). Measured from its section's live
    *  position, so scrolling and pinning still count; the gallery's sideways slide (real movement) is added. */
@@ -250,7 +334,7 @@ export class World {
     const sec = (el.closest("[data-section]") as HTMLElement | null) ?? document.body;
     const ce = this.chain(el), cs = this.chain(sec);
     if (ce.end !== cs.end) return asLive; // (a fixed ancestor in between: as it is)
-    const sr = sec.getBoundingClientRect();
+    const sr = this.secRect(sec);
     let left = sr.left + ce.x - cs.x;
     const top = sr.top + ce.y - cs.y;
     if (this.trackShift && el.closest(".work-track")) left += this.trackShift;
@@ -266,12 +350,16 @@ export class World {
     return track.getBoundingClientRect().left - (sec.getBoundingClientRect().left + ct.x - cs.x);
   }
 
-  /** How much of a box (viewport px) is covered by content: 0 = free. */
-  overlap(b: Box) {
+  /** How much of a box (viewport px) is covered by content: 0 = free. `behind`: the project videos don't count. */
+  overlap(b: Box, behind = false) {
     let a = 0;
+    // (moved by however far the page has scrolled since it was measured; the gallery doesn't move while pinned)
+    const dy = this.scanY - this.scrollY;
     for (const s of this.solids) {
+      if (behind && s.media) continue;
+      const sy = s.work && this.workPinned ? 0 : dy;
       const w = Math.min(b.right, s.right) - Math.max(b.left, s.left);
-      const h = Math.min(b.bottom, s.bottom) - Math.max(b.top, s.top);
+      const h = Math.min(b.bottom, s.bottom + sy) - Math.max(b.top, s.top + sy);
       if (w > 0 && h > 0) a += w * h;
     }
     return a;
@@ -279,13 +367,34 @@ export class World {
 
   update(dt: number) {
     this.now = performance.now() / 1000;
-    const y = window.scrollY;
+    // (Lenis keeps the scroll position; asking the page for it every frame, after the animations have moved
+    // things, made the browser lay the whole page out again in the middle of the frame.)
+    const y = lenis ? lenis.animatedScroll : window.scrollY;
     const v = (y - this.lastScroll) / Math.max(dt, 1 / 240);
     this.scrollV = this.scrollV * 0.8 + v * 0.2;
     this.lastScroll = this.scrollY = y;
-    if (this.now - this.scanAt > 0.35) {
-      this.scanAt = this.now;
-      this.scan();
+    this.workPinned = this.W >= 900 && y >= this.pinFrom - 1 && y <= this.pinTo + 1;
+    // (Measured when the browser has a moment between frames: then the layout is already worked out and
+    // reading it costs little; in the middle of a frame, after the animations have moved things, it made the
+    // browser lay the whole page out again on the spot.)
+    if (this.now - this.scanAt > 0.3 && !this.scanQueued) {
+      this.scanQueued = true;
+      // (Only in a gap with room for it, a few ms, or at the latest after a second and a half, or once the page
+      // has moved half a screen: squeezed in between two frames on a slow PC it made the next one late. In
+      // between, what was measured is moved along with the scroll anyway.)
+      const asked = performance.now();
+      const run = (d?: IdleDeadline) => {
+        const moved = Math.abs(this.scrollY - this.scanY) > this.H * 0.5;
+        if (d && !d.didTimeout && !moved && d.timeRemaining() < 6 && performance.now() - asked < 1500) {
+          requestIdleCallback(run, { timeout: Math.max(1, 1500 - (performance.now() - asked)) });
+          return;
+        }
+        this.scanQueued = false;
+        this.scanAt = performance.now() / 1000;
+        if (this.offs.length) this.scan();
+      };
+      if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 1500 });
+      else setTimeout(run, 0);
     }
     if (player.playing !== this.music) {
       this.music = player.playing;
@@ -294,13 +403,6 @@ export class World {
     this.night = theme.night;
     this.pointer.vx *= Math.exp(-dt * 6);
     this.pointer.vy *= Math.exp(-dt * 6);
-  }
-
-  /** The perch's live top edge (the element may have moved since the last scan). */
-  rectOf(el: Element) {
-    if (!el.isConnected) return null;
-    const r = el.getBoundingClientRect();
-    return r.width ? r : null;
   }
 
   take() {

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { abilities, type Tool } from "@/content";
 import { sky } from "@/lib/scroll";
-import { sfx } from "./ipod/clicker";
+import { softwareGL } from "@/lib/gpu";
 
 // What I do: one row per trade, its tools as Liquid Glass capsules (the iOS 26 material: frosted, bending the
 // clouds behind through its rim, splitting the colours at the edge). The glass itself is drawn by the sky's
@@ -33,7 +33,15 @@ export default function Stack() {
     const el = root.current;
     if (!el) return;
     // (Not on touch screens: there the capsules are their own glass, CSS, so they can't trail the scroll.)
-    sky.glass = window.matchMedia("(pointer: coarse)").matches ? [] : Array.from(el.querySelectorAll<HTMLElement>(".glass-cap"));
+    // (no glass from the sky on touch screens or without a graphics card: there the capsule is its own glass)
+    sky.glass = window.matchMedia("(pointer: coarse)").matches || softwareGL() ? [] : Array.from(el.querySelectorAll<HTMLElement>(".glass-cap"));
+    // (Their transforms read once now, while the loader is up: the sky reads them each frame near the tech
+    // stack, Backdrop.tsx, and the very first read of each made the browser work out the styles on the spot.)
+    for (const g of sky.glass) {
+      gsap.getProperty(g, "x");
+      const cap = g.parentElement;
+      if (cap) gsap.getProperty(cap, "x");
+    }
     // Each time it comes near (and whenever it changes size) the sky measures where the capsules sit, once.
     const io = new IntersectionObserver(
       ([e]) => {
@@ -53,7 +61,7 @@ export default function Stack() {
     };
   }, []);
 
-  // Pointing at a capsule (or tabbing to it): a tick, and its row's line rolls over to say what the tool is.
+  // Pointing at a capsule (or tabbing to it): its row's line rolls over to say what the tool is. (No sounds.)
   useEffect(() => {
     const el = root.current;
     if (!el) return;
@@ -82,7 +90,7 @@ export default function Stack() {
       );
     };
 
-    el.querySelectorAll<HTMLAnchorElement>(".glass-cap").forEach((a, i) => {
+    el.querySelectorAll<HTMLAnchorElement>(".glass-cap").forEach((a) => {
       const row = a.closest<HTMLElement>(".st-row")!;
       const trade = row.dataset.line ?? "";
       const what = a.dataset.what ?? "";
@@ -105,13 +113,12 @@ export default function Stack() {
         sy(1 + Math.abs(ny) * 0.08 - Math.abs(nx) * 0.03);
       };
       // A finger on a capsule is usually the start of a scroll, not a hover or a press: touches get none of
-      // that (no tick, no squeeze, no line swap, no spring back when the browser takes the scroll), and a
+      // that (no squeeze, no line swap, no spring back when the browser takes the scroll), and a
       // tap that really lands gets a quick press instead (in up).
       const touch = (e: PointerEvent) => e.pointerType === "touch";
       const enter = (e: PointerEvent) => {
         if (touch(e)) return;
         a.style.setProperty("--hl", "1");
-        sfx("tick", 0.9 + (i % 5) * 0.06);
         say(row, what);
         move(e);
       };
@@ -131,14 +138,12 @@ export default function Stack() {
         if (touch(e)) return;
         pressed = true;
         a.style.setProperty("--hl", "2");
-        sfx("press");
         if (reduced) return;
         sx(0.95);
         sy(0.95);
       };
       const up = (e: PointerEvent) => {
         if (touch(e)) {
-          sfx("tink", 1 + (i % 4) * 0.08);
           if (reduced) return;
           gsap.fromTo(a, { scaleX: 0.95, scaleY: 0.95 }, { scaleX: 1, scaleY: 1, duration: 0.45, ease: "elastic.out(1, 0.5)", overwrite: "auto" });
           return;
@@ -146,7 +151,6 @@ export default function Stack() {
         if (!pressed) return;
         pressed = false;
         a.style.setProperty("--hl", fine ? "1" : "0");
-        sfx("tink", 1 + (i % 4) * 0.08);
         if (reduced) return;
         sx(1);
         sy(1);

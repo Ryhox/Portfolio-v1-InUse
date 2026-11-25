@@ -20,18 +20,10 @@ export const LINES = {
   petLike: ["...don't stop.", "hmph. ok. a little longer.", "you're not bad at this."],
   petEnd: ["ok that's enough.", "we're done here.", "that was barely adequate."],
   petEndLike: ["wait. that's it?", "...whatever. it was fine."],
-  held: ["hey—", "put me down.", "wow. okay.", "i have legs, you know."],
-  grabEar: ["OW. the EARS.", "not by the ears!!", "ears are not handles."],
-  grabBody: ["...this is undignified.", "unhand me.", "i'm not a plushie."],
-  grabFeet: ["UPSIDE DOWN?!", "the blood's going to my head.", "put me DOWN."],
   feet: ["ticklish. not that i care.", "hey. feet.", "don't."],
-  heldLong: ["i have a cloud for this.", "any day now.", "still here. still annoyed."],
-  shaken: ["why.", "@_@", "the room is spinning."],
-  thrown: ["...", "wheee. i guess."],
   hardLand: ["ow.", "nailed it.", "i meant to do that."],
   softLand: ["thanks, cloud.", "good cloud.", "smooth."],
   softLandLike: ["...nice catch. i guess.", "i wasn't scared."],
-  dropOn: ["i guess i live here now.", "nice view.", "this'll do."],
   scrollFast: ["slow down.", "whoa.", "speed limit, please."],
   fellOff: ["i'm fine.", "cloud. CLOUD."],
   yawn: ["*yawn*", "so sleepy.", "is it nap time."],
@@ -66,18 +58,6 @@ export const LINES = {
   allTheWayUp: ["all the way back up? dedication.", "and we're back.", "full circle. wow."],
   movingAgain: ["oh. we're moving again.", "finally, some action.", "she lives."],
   project: ["ooh. that one.", "he's proud of that one. don't tell him i said so.", "click it. you know you want to.", "that one's actually cool."],
-  heldScroll: ["where are you taking me?", "scrolling AND holding me? multitasker.", "this is a kidnapping."],
 };
 
 export type LineKey = keyof typeof LINES;
-
-const last: Partial<Record<LineKey, number>> = {};
-
-// A line from the set, not the same one twice in a row.
-export function line(key: LineKey): string {
-  const list = LINES[key];
-  let i = Math.floor(Math.random() * list.length);
-  if (list.length > 1 && i === last[key]) i = (i + 1) % list.length;
-  last[key] = i;
-  return list[i];
-}

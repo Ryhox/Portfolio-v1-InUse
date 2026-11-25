@@ -1,24 +1,37 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
 import IPodModel from "./IPodModel";
+import CompileGate from "../three/CompileGate";
+import { softwareGL } from "@/lib/gpu";
 
 // The iPod in its own little canvas, rendered only when something changes (the screen, a
 // spring). Lit like a product shot (a neutral studio, filmic tone mapping), so the white plastic keeps its
 // greys instead of glaring, the way the model looks on Sketchfab.
 export default function IPodCanvas({ open, onExpand, onLoaded }: { open: boolean; onExpand: () => void; onLoaded: () => void }) {
+  // Nothing is drawn until its shaders are compiled in the background (see CompileGate); then it's there.
+  const [compiled, setCompiled] = useState(false);
+  // (bumped when the graphics driver resets: the canvas is rebuilt from scratch)
+  const [life, setLife] = useState(0);
+  const onCompiled = useCallback(() => {
+    setCompiled(true);
+    onLoaded();
+  }, [onLoaded]);
   return (
     <Canvas
+      key={life}
       className="ipod-canvas"
-      frameloop="demand"
+      frameloop={compiled ? "demand" : "never"}
       // The dock is this same canvas under a CSS scale: measure the untransformed size.
       resize={{ offsetSize: true }}
-      dpr={[1, 2]}
+      // (one pixel per CSS pixel without a graphics card, gpu.ts)
+      dpr={softwareGL() ? 1 : [1, 2]}
       // A wider lens up close: real perspective on its edges when it turns.
       camera={{ fov: 36, near: 0.3, far: 20, position: [0, 0, 3.7] }}
-      gl={{ antialias: true, alpha: true }}
+      gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+      onCreated={({ gl }) => gl.domElement.addEventListener("webglcontextrestored", () => setLife((n) => n + 1), { once: true })}
     >
       <ambientLight intensity={0.25} />
       <directionalLight position={[2, 3, 4]} intensity={1.2} />
@@ -35,7 +48,8 @@ export default function IPodCanvas({ open, onExpand, onLoaded }: { open: boolean
         <Lightformer form="rect" intensity={1.8} position={[0, 6, 0]} scale={[8, 8, 1]} />
       </Environment>
       <Suspense fallback={null}>
-        <IPodModel open={open} onExpand={onExpand} onLoaded={onLoaded} />
+        <IPodModel open={open} onExpand={onExpand} />
+        <CompileGate onDone={onCompiled} warm />
       </Suspense>
     </Canvas>
   );

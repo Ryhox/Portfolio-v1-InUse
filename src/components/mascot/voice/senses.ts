@@ -108,7 +108,6 @@ export class Senses {
   private lastPX = 0;
   private lastPY = 0;
   private hasPointer = false;
-  private recheckQueued = false;
   private lastPT = 0;
   private flips: number[] = [];
   private lastShake = 0;
@@ -167,7 +166,16 @@ export class Senses {
 
     this.on(window, "scroll", () => this.onScroll(), { passive: true });
     this.on<PointerEvent>(window, "pointermove", (e) => this.onPointer(e), { passive: true });
-    this.on(document, "pointerover", (e) => this.onOver(e.target as Element | null), { passive: true });
+    // (The clear pane over the page while it scrolls, SmoothScroll.tsx, isn't anything: what's under it stays.)
+    this.on(
+      document,
+      "pointerover",
+      (e) => {
+        const t = e.target as Element | null;
+        if (!t?.classList?.contains("scroll-shield")) this.onOver(t);
+      },
+      { passive: true },
+    );
     this.on<MouseEvent>(document, "click", (e) => this.onClick(e), { capture: true });
     this.on<KeyboardEvent>(window, "keydown", (e) => this.onKey(e));
     this.on(document, "visibilitychange", () => this.onVisibility());
@@ -239,6 +247,7 @@ export class Senses {
     this.timers = [];
     this.seenTimers.forEach((t) => clearTimeout(t));
     this.seenTimers.clear();
+    window.clearTimeout(this.trailing);
   }
 
   /** Her own body: the 3D model calls these (R3F pointer events), since she isn't a DOM element. */
@@ -301,6 +310,9 @@ export class Senses {
     }
   }
 
+  private recheckAt = 0;
+  private measureAt = 0;
+  private docH = 1;
   private onScroll() {
     const w = this.world;
     const now = performance.now();
@@ -321,16 +333,24 @@ export class Senses {
     this.lastT = now;
     if (Math.abs(v) > 50) this.input();
     // The page moved under a still cursor (the work gallery slides cards sideways): no pointerover fires,
-    // so look again at what's under it now (once a frame at most).
-    if (this.hasPointer && !this.recheckQueued) {
-      this.recheckQueued = true;
-      requestAnimationFrame(() => {
-        this.recheckQueued = false;
-        this.onOver(document.elementFromPoint(this.lastPX, this.lastPY));
-      });
+    // so look again at what's under it now. (A few times a second, and right here in the scroll event, where
+    // the layout is still worked out: later in the frame, after the animations, asking made the browser lay the
+    // page out again.)
+    if (this.hasPointer && now - this.recheckAt > 200) {
+      this.recheckAt = now;
+      // (Not while the clear pane is over the page, SmoothScroll.tsx: the page doesn't hover anything then
+      // either, and once it's gone the browser says what's under the pointer again.)
+      const el = document.elementFromPoint(this.lastPX, this.lastPY);
+      if (!el?.classList.contains("scroll-shield")) this.onOver(el);
     }
 
-    const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+    // (The page's height and which section is in the middle: measured a few times a second too.)
+    const measure = now - this.measureAt > 200;
+    if (measure) {
+      this.measureAt = now;
+      this.docH = document.documentElement.scrollHeight;
+    }
+    const max = Math.max(1, this.docH - window.innerHeight);
     w.depth = Math.min(1, Math.max(0, y / max));
     w.maxDepth = Math.max(w.maxDepth, w.depth);
 
@@ -351,6 +371,15 @@ export class Senses {
     if (top && !this.atTop && w.maxDepth > 0.4) this.fire({ type: "top" });
     this.atTop = top;
 
+    if (measure) this.checkSection(now);
+    // (and once more just after the scroll stops, so the last section isn't missed)
+    window.clearTimeout(this.trailing);
+    this.trailing = window.setTimeout(() => this.checkSection(performance.now()), 250);
+  }
+
+  private trailing = 0;
+  private checkSection(now: number) {
+    const w = this.world;
     const section = sectionAtCenter();
     if (section && section !== w.section) {
       // Ignore sections flown through in under half a second.

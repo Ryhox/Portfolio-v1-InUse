@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { gsap } from "gsap";
 import SmoothScroll, { lenis } from "./SmoothScroll";
 import Motion from "./Motion";
@@ -13,17 +13,20 @@ import TabTitle from "./TabTitle";
 import Safe from "./Safe";
 import Mascot from "./mascot/Mascot";
 import { intro } from "@/lib/intro";
-import { softwareGL } from "@/lib/gpu";
+import { gpuReady } from "@/lib/gpu";
+import { profile } from "@/content";
 
 const Scene = dynamic(() => import("./three/Scene"), { ssr: false });
+// (without a graphics card: the sky as two still pictures, drawn in a worker, no three.js on the page)
+const BakedSky = dynamic(() => import("./three/BakedSky"), { ssr: false });
 
-// The loader stays up at least this long, so the count reads as a count and not a flash.
-const MIN_LOAD = 1200;
+// The loader: the sky, the name in its chrome right where the real title sits, and at the bottom a progress bar
+// with the percentage over it. Done: a shine runs across the name and the sky opens up around it (the real title
+// is right underneath, letter for letter).
 
 export default function Experience({ children }: { children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const loader = useRef<HTMLDivElement>(null);
-  const count = useRef<HTMLSpanElement>(null);
   const [sceneReady, setSceneReady] = useState(false);
   const [revealed, setRevealed] = useState(false);
   // Scroll choreography is built while the loader is still up (not at the reveal, which must stay smooth).
@@ -31,10 +34,50 @@ export default function Experience({ children }: { children: ReactNode }) {
   const onMotionReady = useCallback(() => setMotionSetup(true), []);
   const onSceneReady = useCallback(() => setSceneReady(true), []);
 
-  // Without a graphics card (gpu.ts) some things are drawn lighter (globals.css: the tech stack's glass).
-  useEffect(() => {
-    if (softwareGL()) document.documentElement.dataset.lite = "";
+  // How far loading is (0..1): only ever forward. The bar follows it (a CSS transition); the percentage is
+  // rewritten only when it moves on, a few times a second at most, never every frame.
+  const forge = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLSpanElement>(null);
+  const pct = useRef<HTMLSpanElement>(null);
+  const progress = useRef(0);
+  const advance = useCallback((p: number) => {
+    if (p <= progress.current) return;
+    progress.current = Math.min(1, p);
+    if (bar.current) bar.current.style.transform = `scaleX(${progress.current.toFixed(3)})`;
+    const text = `${Math.round(progress.current * 100)}%`;
+    if (pct.current && pct.current.textContent !== text) pct.current.textContent = text;
   }, []);
+  // (the sky's models and shaders: the quarter after the graphics check)
+  const onSkyProgress = useCallback((p: number) => advance(0.24 + 0.24 * (p / 100)), [advance]);
+  const onSetupStep = useCallback((done: number, total: number) => advance(0.5 + 0.42 * (done / total)), [advance]);
+
+  // The 3D layers mount once it's known whether WebGL is drawn in software (asked off the main thread,
+  // gpu.ts). Without a graphics card some things are drawn lighter (globals.css: the tech stack's glass).
+  const [gpu, setGpu] = useState<"" | "soft" | "hard">("");
+  useEffect(() => {
+    let alive = true;
+    gpuReady().then((g) => {
+      if (!alive) return;
+      advance(0.24);
+      if (g.soft) document.documentElement.dataset.lite = "";
+      setGpu(g.soft ? "soft" : "hard");
+    });
+    return () => {
+      alive = false;
+    };
+  }, [advance]);
+
+  // The first steps, and a slow floor so the forging never looks stuck while something takes its time.
+  useEffect(() => {
+    advance(0.06);
+    document.fonts?.ready.then(() => advance(0.14));
+    const born = performance.now();
+    const t = window.setInterval(() => advance(0.84 * (1 - Math.exp(-(performance.now() - born) / 3200))), 250);
+    return () => window.clearInterval(t);
+  }, [advance]);
+  useEffect(() => {
+    if (sceneReady) advance(0.5);
+  }, [sceneReady, advance]);
 
   // The loader never gets stuck: if the sky hasn't reported ready after a while (a GPU that never finishes,
   // a canvas that couldn't start), the page comes in anyway; same if the scroll setup never reports back.
@@ -48,97 +91,52 @@ export default function Experience({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(t);
   }, [sceneReady]);
 
-  // Displayed value eases toward the real loading progress.
-  const progress = useRef({ v: 0, target: 4, finishing: false, born: 0 });
-  const render = useCallback(() => {
-    const text = String(Math.round(progress.current.v));
-    if (count.current && count.current.textContent !== text) {
-      count.current.textContent = text;
-      // (The chrome fill is a copy of the letters drawn on top, see .char::after in globals.css.)
-      count.current.dataset.c = text;
-    }
-  }, []);
-
-  const onProgress = useCallback((p: number) => {
-    // Assets are most of the wait; shader compilation finishes the last stretch.
-    progress.current.target = Math.max(progress.current.target, 8 + p * 0.8);
-  }, []);
-
+  // No scrolling while the loader is up.
   useEffect(() => {
     lenis?.stop();
-    const p = progress.current;
-    p.born = performance.now();
-    document.fonts?.ready.then(() => {
-      p.target = Math.max(p.target, 14);
-    });
-    // Only while loading: once the count is finishing, the timeline below drives it and this stops for good.
-    const tick = () => {
-      if (p.finishing) {
-        gsap.ticker.remove(tick);
-        return;
-      }
-      // Never looks stuck: a slow floor that creeps toward 90% while real progress catches up.
-      const floor = 90 * (1 - Math.exp(-(performance.now() - p.born) / 1400));
-      const target = Math.max(p.target, floor);
-      const next = p.v + (target - p.v) * 0.09;
-      if (Math.abs(next - p.v) > 0.02) {
-        p.v = next;
-        render();
-      }
-    };
-    gsap.ticker.add(tick);
-    return () => gsap.ticker.remove(tick);
-  }, [render]);
+  }, []);
 
-  // Everything compiled: count to 100, the number rises out of sight (the way the name comes in), the sky
-  // underneath takes over and the name rises into place.
+  // Everything set up: the bar fills, a shine runs across the name, then the sky opens up from the name
+  // outwards (the real sky behind it), the bar goes and the nav drops in. The name stays: the real title is
+  // right underneath it, letter for letter.
   useEffect(() => {
     if (!motionSetup) return;
-    const p = progress.current;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const wait = Math.max(0, MIN_LOAD - (performance.now() - p.born)) / 1000;
+    const lite = "lite" in document.documentElement.dataset;
+    advance(1);
 
     const reveal = () => {
       intro.at = performance.now() / 1000;
       setRevealed(true);
       lenis?.start();
       if (reduced) return;
-      gsap.fromTo(".scene", { scale: 1.12 }, { scale: 1, duration: 1.8, ease: "expo.out", clearProps: "transform" });
-      gsap.from(".nav > *", { yPercent: -160, autoAlpha: 0, duration: 1, stagger: 0.08, ease: "expo.out", delay: 0.45 });
-      gsap.fromTo(".hero-title .char", { yPercent: 150, rotate: 10 }, { yPercent: 0, rotate: 0, duration: 1.3, stagger: 0.07, ease: "expo.out", delay: 0.2 });
+      // (The sky settling in: not without a graphics card, where scaling the whole screen every frame is the
+      // heaviest thing the intro would do, gpu.ts.)
+      if (!lite) gsap.fromTo(".scene", { scale: 1.12 }, { scale: 1, duration: 1.8, ease: "expo.out", clearProps: "transform" });
+      gsap.from(".nav > *", { yPercent: -160, autoAlpha: 0, duration: 1, stagger: 0.08, ease: "expo.out", delay: 0.35 });
     };
 
-    const tl = gsap.timeline({ delay: wait });
-    tl.to(p, {
-      v: 100,
-      duration: 0.45,
-      ease: "power2.out",
-      onStart: () => {
-        p.finishing = true;
-      },
-      onUpdate: render,
-    })
-      .to(".loader-num .char", { yPercent: -125, rotate: -8, duration: reduced ? 0.01 : 0.6, ease: "power3.in" }, "+=0.15")
-      .to(".loader-sub", { y: -10, autoAlpha: 0, duration: reduced ? 0.01 : 0.35, ease: "power2.in" }, "<")
-      .add(reveal, "-=0.1")
-      .to(loader.current, {
-        autoAlpha: 0,
-        duration: reduced ? 0.01 : 0.7,
-        ease: "power2.inOut",
-        onComplete: () => {
-          if (loader.current) loader.current.style.display = "none";
-        },
-      }, "<");
+    const sky = loader.current?.querySelector(".loader-sky") ?? null;
+    // (a moment for the bar to finish filling first)
+    const tl = gsap.timeline({ delay: reduced ? 0 : 0.5 });
+    if (!reduced) tl.add(() => forge.current?.classList.add("is-shine")).to({}, { duration: 0.7 });
+    tl.add(reveal)
+      .to(".loader-progress", { autoAlpha: 0, y: 10, duration: reduced ? 0.01 : 0.4, ease: "power2.in" }, "<")
+      // (the opening: a soft-edged hole growing from the name; without a graphics card a fade, the cheaper one)
+      .to(sky, lite || reduced ? { autoAlpha: 0, duration: reduced ? 0.01 : 0.9, ease: "power2.inOut" } : { "--hole": "130%", duration: 1.5, ease: "power2.inOut", onStart: () => loader.current?.classList.add("is-opening") }, "<")
+      .add(() => {
+        if (loader.current) loader.current.style.display = "none";
+      });
     return () => {
       tl.kill();
     };
-  }, [motionSetup, render]);
+  }, [motionSetup, advance]);
 
   return (
     <>
       <div ref={root} className={revealed ? "app is-ready" : "app"}>
         <SmoothScroll />
-        <Motion ready={sceneReady} onReady={onMotionReady} />
+        <Motion ready={sceneReady} onReady={onMotionReady} onStep={onSetupStep} />
         <ActionFx ready={motionSetup} />
         <div className="scene" aria-hidden>
           <Safe
@@ -148,38 +146,50 @@ export default function Experience({ children }: { children: ReactNode }) {
               onSceneReady();
             }}
           >
-            <Scene eventSource={root} onReady={onSceneReady} onProgress={onProgress} />
+            {gpu === "hard" ? <Scene eventSource={root} onReady={onSceneReady} onProgress={onSkyProgress} /> : gpu === "soft" ? <BakedSky onReady={onSceneReady} /> : null}
           </Safe>
         </div>
         {/* The flight through the clouds between About and the work (over the page, under the nav). */}
-        <CloudPass />
+        {gpu ? <CloudPass /> : null}
         <TabTitle />
         <div className="progress" aria-hidden>
           <div className="progress-fill" />
         </div>
-        {/* While everything loads: the sky, and the count in the same chrome letters as the name. At 100 it
-            rises out of sight and the name rises in. */}
+        {/* While everything loads: the sky, the name right over the real title (laid out exactly like it, .forge
+            in globals.css) and the progress at the bottom. */}
         <div ref={loader} className="loader" aria-hidden>
-          <div className="loader-num">
-            <span className="char-mask">
-              <span ref={count} className="char" data-c="0">
-                0
+          <div className="loader-sky" />
+          <div ref={forge} className="forge">
+            <div className="hero-title forge-title">
+              <span className="hero-word">
+                {Array.from(profile.handle).map((c, i) => (
+                  <span key={i} className="forge-letter" style={{ "--i": i } as CSSProperties}>
+                    <span className="char-mask">
+                      <span className="char" data-c={c}>
+                        {c}
+                      </span>
+                    </span>
+                  </span>
+                ))}
               </span>
+            </div>
+          </div>
+          <div className="loader-progress">
+            <span ref={pct} className="loader-pct">
+              0%
+            </span>
+            <span className="loader-bar">
+              <span ref={bar} className="loader-bar-fill" />
             </span>
           </div>
-          <p className="loader-sub">loading the sky</p>
         </div>
         {children}
       </div>
       {/* Outside the app root: presses on the iPod never reach the 3D scenes behind it. */}
-      <Safe>
-        <IPod ready={revealed} />
-      </Safe>
+      <Safe>{gpu ? <IPod ready={revealed} /> : null}</Safe>
       <MiniPlayer />
       {/* The cloud rider who hangs around the page (mascot/brain.ts). */}
-      <Safe>
-        <Mascot ready={revealed} />
-      </Safe>
+      <Safe>{gpu ? <Mascot ready={revealed} /> : null}</Safe>
     </>
   );
 }

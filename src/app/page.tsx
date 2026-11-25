@@ -56,7 +56,9 @@ function Statement({ text }: { text: string }) {
 function Chars({ text, className }: { text: string; className?: string }) {
   const words = text.split(" ");
   return (
-    <span className={className} aria-label={text}>
+    <span className={className}>
+      {/* (what screen readers read: the letters themselves are hidden from them) */}
+      <span className="sr-only">{text}</span>
       {words.map((word, w) => (
         <span key={w} className="word" aria-hidden>
           {Array.from(word).map((c, i) => (
@@ -215,14 +217,16 @@ export default function Home() {
                   tabIndex={-1}
                   aria-hidden
                 >
-                  {/* Loaded + played only near the viewport (see Motion.tsx); the poster paints instantly. */}
+                  {/* Loaded + played only near the viewport (see Motion.tsx). Its poster is given to it at the start of the
+                      scroll setup, behind the loader (they are far down the page, and fetched with the page they held
+                      up everything else on a slow connection). */}
                   {/* (The drift and the tilt move this box, not the video itself: Motion.tsx.) */}
                   <div className="panel-drift">
                     <video
                       className="panel-img"
                       data-src={p.video}
                       data-av1={p.av1}
-                      poster={p.poster}
+                      data-poster={p.poster}
                       muted
                       loop
                       playsInline
@@ -244,7 +248,7 @@ export default function Home() {
                 </div>
               </article>
             ))}
-            <a href={github.href} target="_blank" rel="noreferrer" className="panel-more" aria-label={`And much more on GitHub: ${github.handle}`}>
+            <a href={github.href} target="_blank" rel="noreferrer" className="panel-more">
               <h3 className="more-title">
                 <Chars text="And much" />
                 <br />

@@ -2,40 +2,80 @@
 // a virtual machine, a headless test like PageSpeed). Then every pixel of the 3D layers is computed on the CPU,
 // and at full size the page ran at a couple of frames a second; those layers are drawn smaller and less often
 // there (Scene.tsx, CloudPass.tsx, the iPod and the mascot). With a real graphics card nothing changes.
+//
+// Finding out means starting a WebGL context, and in software that alone held the page's main thread for
+// most of a second. So it's asked in a worker (gpu.worker.ts) and the answer comes back a moment later:
+// `gpuReady()` resolves once it's known; `softwareGL()` and `canDrawInWorker()` are only read after that
+// (Experience.tsx mounts the 3D layers once it's in).
 
-/** A worker can draw WebGL into a canvas handed over from the page (OffscreenCanvas). Tried for real, once:
- *  Safari 16.4 to 16.7 has OffscreenCanvas but no WebGL on it. */
-let workerGL: boolean | null = null;
-export function canDrawInWorker() {
-  if (workerGL !== null) return workerGL;
-  workerGL = false;
-  if (typeof OffscreenCanvas === "undefined" || typeof HTMLCanvasElement === "undefined" || !("transferControlToOffscreen" in HTMLCanvasElement.prototype)) return workerGL;
-  try {
-    const gl = new OffscreenCanvas(1, 1).getContext("webgl2") as WebGL2RenderingContext | null;
-    workerGL = !!gl;
-    gl?.getExtension("WEBGL_lose_context")?.loseContext();
-  } catch {
-    // (no WebGL there)
-  }
-  return workerGL;
-}
+import type { GpuInfo } from "./gpu.worker";
 
-let soft: boolean | null = null;
+const SOFT = /swiftshader|llvmpipe|lavapipe|softpipe|software|basic render/i;
 
-export function softwareGL() {
-  if (soft !== null) return soft;
-  soft = false;
-  if (typeof document === "undefined") return soft;
+let info: GpuInfo | null = null;
+let probe: Promise<GpuInfo> | null = null;
+
+// Where a worker can't use WebGL (Safari before 17), the page asks itself, as before.
+function onPage(): GpuInfo {
+  let soft = false;
   try {
     const c = document.createElement("canvas");
     const gl = (c.getContext("webgl2") ?? c.getContext("webgl")) as WebGLRenderingContext | null;
-    if (!gl) return (soft = true);
-    const info = gl.getExtension("WEBGL_debug_renderer_info");
-    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
-    soft = /swiftshader|llvmpipe|lavapipe|softpipe|software|basic render/i.test(name);
+    if (!gl) return { worker: false, soft: true };
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+    soft = SOFT.test(name);
     gl.getExtension("WEBGL_lose_context")?.loseContext();
   } catch {
     // (can't tell: assume a real graphics card)
   }
-  return soft;
+  return { worker: false, soft };
+}
+
+/** Resolves once it's known whether WebGL is drawn in software (and works in a worker). */
+export function gpuReady(): Promise<GpuInfo> {
+  if (probe) return probe;
+  probe = new Promise<GpuInfo>((resolve) => {
+    if (typeof window === "undefined") return resolve({ worker: false, soft: false });
+    const done = (i: GpuInfo) => {
+      if (info) return;
+      info = i;
+      resolve(i);
+    };
+    const canTry = typeof OffscreenCanvas !== "undefined" && typeof Worker !== "undefined" && "transferControlToOffscreen" in HTMLCanvasElement.prototype;
+    if (!canTry) return done(onPage());
+    let w: Worker | null = null;
+    const fallback = () => {
+      w?.terminate();
+      done(onPage());
+    };
+    try {
+      w = new Worker(new URL("./gpu.worker.ts", import.meta.url), { type: "module" });
+    } catch {
+      return fallback();
+    }
+    // (a worker that never answers: the page asks itself)
+    const t = window.setTimeout(fallback, 5000);
+    w.onmessage = (e: MessageEvent<GpuInfo>) => {
+      window.clearTimeout(t);
+      w?.terminate();
+      // No WebGL in the worker: the page may still have it (and must say whether it's software).
+      done(e.data.worker ? e.data : onPage());
+    };
+    w.onerror = () => {
+      window.clearTimeout(t);
+      fallback();
+    };
+  });
+  return probe;
+}
+
+/** A worker can draw WebGL into a canvas handed over from the page (OffscreenCanvas). Read after gpuReady(). */
+export function canDrawInWorker() {
+  return info?.worker ?? false;
+}
+
+/** WebGL is drawn in software. Read after gpuReady(). */
+export function softwareGL() {
+  return info?.soft ?? false;
 }

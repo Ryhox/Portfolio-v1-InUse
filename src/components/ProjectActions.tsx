@@ -5,18 +5,11 @@ import { hasDemo, type ProjectLinks } from "@/links";
 // the exact point the pointer enters and drains out where it leaves; the label is drawn twice so it
 // changes colour precisely at the edge of the fill.
 
+// (Each letter becomes its own rolling piece in the browser, lib/letters.ts: the HTML only carries the word.)
 function Roll({ text }: { text: string }) {
   return (
-    <span className="act-text">
-      {Array.from(text).map((c, i) => {
-        const ch = c === " " ? " " : c;
-        return (
-          <span key={i} className="act-ch" style={{ "--i": i } as CSSProperties}>
-            <span>{ch}</span>
-            <span>{ch}</span>
-          </span>
-        );
-      })}
+    <span className="act-text" data-letters="roll">
+      {text}
     </span>
   );
 }
@@ -53,13 +46,6 @@ function Row({ label, code, arrow = true, wet }: { label: string; code?: boolean
   );
 }
 
-const typed = (text: string) =>
-  Array.from(text).map((c, i) => (
-    <span key={i} style={{ "--i": i } as CSSProperties}>
-      {c}
-    </span>
-  ));
-
 // A browser toolbar that drops in over the picture and types the address: the live site, or the repo.
 function Browser({ url, kind }: { url: string; kind: "demo" | "code" }) {
   return (
@@ -73,7 +59,10 @@ function Browser({ url, kind }: { url: string; kind: "demo" | "code" }) {
           <svg viewBox="0 0 16 16" aria-hidden>
             <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2M3.5 7h9v6.5h-9z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
           </svg>
-          <span className="mfx-type">{typed(url)}</span>
+          {/* (typed letter by letter: each letter becomes its own element in the browser, lib/letters.ts) */}
+          <span className="mfx-type" data-letters="type">
+            {url}
+          </span>
           <span className="mfx-caret" />
         </span>
       </span>
@@ -109,7 +98,8 @@ export default function ProjectActions({ title, links }: { title: string; links:
   return (
     <div className="panel-actions">
       {demo ? (
-        <a className="act act--solid" href={links.demo} target="_blank" rel="noreferrer" data-act aria-label={`Live demo of ${title} (opens in a new tab)`}>
+        <a className="act act--solid" href={links.demo} target="_blank" rel="noreferrer" data-act>
+          <span className="sr-only">{`Live demo of ${title} (opens in a new tab)`}</span>
           <span className="act-fill" aria-hidden />
           <Row label="Live demo" />
           <Row label="Live demo" wet />
@@ -119,7 +109,8 @@ export default function ProjectActions({ title, links }: { title: string; links:
           <Row label="No live demo" arrow={false} />
         </span>
       )}
-      <a className="act act--line" href={links.source} target="_blank" rel="noreferrer" data-act aria-label={`Source code of ${title} on GitHub (opens in a new tab)`}>
+      <a className="act act--line" href={links.source} target="_blank" rel="noreferrer" data-act>
+        <span className="sr-only">{`Source code of ${title} on GitHub (opens in a new tab)`}</span>
         <span className="act-fill" aria-hidden />
         <Row label="Source code" code />
         <Row label="Source code" code wet />

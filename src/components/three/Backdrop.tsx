@@ -8,6 +8,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { floorLift, scroll, sky } from "@/lib/scroll";
 import { currentTheme, theme } from "@/lib/theme";
 import { fragment, MAX_GLASS, vertex } from "./sky";
+import { PALETTES as RGB } from "./palettes";
 
 // The sky behind the whole page: a clear blue day sky with two layers of drifting cumulus, lit by a soft
 // sun (bright white tops, blue-grey bellies, see-through edges). The air right above the horizon stays
@@ -24,19 +25,10 @@ import { fragment, MAX_GLASS, vertex } from "./sky";
 // frosted, pulled in at the rim like a drop of glass, with a sheen where the light hits. Same pass, no copies.
 
 
-const srgb = (hex: string) => {
-  const n = parseInt(hex.slice(1), 16);
-  return new THREE.Vector3(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
-};
-const pal = (a: string, b: string, c: string) => [srgb(a), srgb(b), srgb(c)];
-// top / middle / low per section: a clear blue day, a little brighter every section down.
-const PALETTES: Record<string, THREE.Vector3[]> = {
-  hero: pal("#2f7fe2", "#5ea8ef", "#a4d2f7"),
-  intro: pal("#2f7fe2", "#5ea8ef", "#a4d2f7"),
-  work: pal("#3587e5", "#66aff1", "#acd7f8"),
-  // The end: the deep, saturated blue of the classic wallpaper, still light at the horizon.
-  contact: pal("#1c57d2", "#3b80e6", "#79b2f1"),
-};
+// top / middle / low per section (palettes.ts), as vectors for the shader.
+const PALETTES: Record<string, THREE.Vector3[]> = Object.fromEntries(
+  Object.entries(RGB).map(([name, p]) => [name, p.map((c) => new THREE.Vector3(...c))]),
+);
 
 // Single fullscreen backdrop, so its uniforms can live at module scope and be animated per frame.
 const uniforms = {
@@ -149,11 +141,15 @@ function tickSky(dt: number, elapsed: number, width: number, height: number) {
   uniforms.uGlassN.value = n;
 }
 
-/** Where the shader needs a variant: phones get their own noise. */
-/** Without a graphics card (Scene.tsx): the sky drawn once each into two pictures, instead of every frame
- *  (in software every frame cost over a tenth of a second): the top of the page with its clouds, and the
- *  last screen with the hill. Still, but all there. Returns their object URLs (the caller frees them). */
+/** The sky's two still pictures drawn on the page (BakedSky.tsx asks a worker first; this is for browsers
+ *  where a worker can't draw WebGL): the top of the page with its clouds, and the last screen with the hill.
+ *  Returns their object URLs (the caller frees them). */
 export async function bakeSky(width: number, height: number, night: number) {
+  // At the very bottom of the page the floor sits this far down the screen (see measureSections).
+  const contact = document.querySelector(".contact");
+  const docH = document.documentElement.scrollHeight;
+  const below = contact ? docH - (contact.getBoundingClientRect().bottom + window.scrollY) : 0;
+  const endFloor = height - below - floorLift(width);
   const canvas = document.createElement("canvas");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
   // (as the page's canvas: "flat", colours out in sRGB)
@@ -183,11 +179,6 @@ export async function bakeSky(width: number, height: number, night: number) {
     const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/webp", 1));
     return blob ? URL.createObjectURL(blob) : "";
   };
-  // At the very bottom of the page the floor sits this far down the screen (see measureSections).
-  const contact = document.querySelector(".contact");
-  const docH = document.documentElement.scrollHeight;
-  const below = contact ? docH - (contact.getBoundingClientRect().bottom + window.scrollY) : 0;
-  const endFloor = height - below - floorLift(width);
   try {
     const top = await shot(PALETTES.hero, 0, 1e5);
     const end = await shot(PALETTES.contact, (docH - height) / height, endFloor);

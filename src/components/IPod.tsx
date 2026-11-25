@@ -65,9 +65,11 @@ export default function IPod({ ready }: { ready: boolean }) {
 
   // How big it can be when picked up (fits short and narrow screens).
   useEffect(() => {
+    // (Set on the iPod itself, the only thing that uses it: set on the page's root, every element on the page
+    // had its styles worked out again.)
     const fit = () => {
       const s = Math.min(1, (window.innerHeight - (phone ? 96 : 24)) / H, (window.innerWidth - 24) / W);
-      document.documentElement.style.setProperty("--ipod-open", s.toFixed(3));
+      box.current?.style.setProperty("--ipod-open", s.toFixed(3));
     };
     fit();
     window.addEventListener("resize", fit);

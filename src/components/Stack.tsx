@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { abilities, type Tool } from "@/content";
 import { sky } from "@/lib/scroll";
-import { softwareGL } from "@/lib/gpu";
+import { gpuReady } from "@/lib/gpu";
 
 // What I do: one row per trade, its tools as Liquid Glass capsules (the iOS 26 material: frosted, bending the
 // clouds behind through its rim, splitting the colours at the edge). The glass itself is drawn by the sky's
@@ -32,16 +32,20 @@ export default function Stack() {
   useEffect(() => {
     const el = root.current;
     if (!el) return;
+    let alive = true;
     // (Not on touch screens: there the capsules are their own glass, CSS, so they can't trail the scroll.)
     // (no glass from the sky on touch screens or without a graphics card: there the capsule is its own glass)
-    sky.glass = window.matchMedia("(pointer: coarse)").matches || softwareGL() ? [] : Array.from(el.querySelectorAll<HTMLElement>(".glass-cap"));
-    // (Their transforms read once now, while the loader is up: the sky reads them each frame near the tech
-    // stack, Backdrop.tsx, and the very first read of each made the browser work out the styles on the spot.)
-    for (const g of sky.glass) {
-      gsap.getProperty(g, "x");
-      const cap = g.parentElement;
-      if (cap) gsap.getProperty(cap, "x");
-    }
+    gpuReady().then((g) => {
+      if (!alive || g.soft || window.matchMedia("(pointer: coarse)").matches) return;
+      sky.glass = Array.from(el.querySelectorAll<HTMLElement>(".glass-cap"));
+      sky.glassMoved = true;
+      // (Their transforms read once now, while the loader is up: the sky reads them each frame near the tech
+      // stack, Backdrop.tsx, and the very first read of each made the browser work out the styles on the spot.)
+      for (const cap of sky.glass) {
+        gsap.getProperty(cap, "x");
+        if (cap.parentElement) gsap.getProperty(cap.parentElement, "x");
+      }
+    });
     // Each time it comes near (and whenever it changes size) the sky measures where the capsules sit, once.
     const io = new IntersectionObserver(
       ([e]) => {
@@ -54,6 +58,7 @@ export default function Stack() {
     const ro = new ResizeObserver(() => (sky.glassMoved = true));
     ro.observe(el);
     return () => {
+      alive = false;
       ro.disconnect();
       io.disconnect();
       sky.glass = [];

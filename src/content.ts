@@ -32,16 +32,17 @@ type Project = {
   focus?: string;
   links: ProjectLinks;
   // Its numbers, big, beside the description. Real ones, counted from the project itself (its repo, its README,
-  // its users) on 2026-11-25. `live`: downloads, refreshed every hour from where the mod is published (stats.ts);
-  // the value written here stands in until then.
+  // its users) on 2026-11-25. `live`: refreshed every hour (stats.ts), the mod's downloads from where it is
+  // published, Pokyh's accounts and schools from its own API; the value written here stands in until then.
   stats: Stat[];
   // A few real lines from the repo, shown when you point at "Source code": short and plain enough that anyone
   // can follow what they do. Copied as they are (a "…" line marks lines left out).
   code: { file: string; lines: string[] };
 };
 
-// (`live.modrinth` / `live.curseforge`: the project's slug there; the downloads on both are added up)
-export type Stat = { value: string; label: string; live?: { modrinth?: string; curseforge?: string } };
+// (`live.modrinth` / `live.curseforge`: the project's slug there; the downloads on both are added up.
+// `live.pokyh`: which of Pokyh's own numbers this is.)
+export type Stat = { value: string; label: string; live?: { modrinth?: string; curseforge?: string; pokyh?: "users" | "schools" } };
 
 // Clips are pre-encoded small (H.264, 1120px, no audio, faststart) with a WebP poster for instant paint.
 export const projects: Project[] = [
@@ -54,7 +55,10 @@ export const projects: Project[] = [
     av1: "/work/pokyh.av1.mp4",
     poster: "/work/pokyh.webp",
     links: links.projects.pokyh,
-    stats: [{ value: "120+", label: "students use it" }, { value: "10+", label: "schools" }],
+    stats: [
+      { value: "121", label: "people use it", live: { pokyh: "users" } },
+      { value: "8", label: "schools", live: { pokyh: "schools" } },
+    ],
     code: {
       file: "lib/grades.ts",
       lines: [
